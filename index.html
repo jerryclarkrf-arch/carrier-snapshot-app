@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Freight Services | Carrier Snapshot</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f9; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .search-container { display: flex; margin-bottom: 20px; }
+        input[type="text"] { flex-grow: 1; padding: 12px; border: 1px solid #ccc; border-radius: 4px 0 0 4px; font-size: 16px; }
+        button { padding: 12px 24px; background-color: #1a4a7c; color: white; border: none; border-radius: 0 4px 4px 0; cursor: pointer; font-size: 16px; font-weight: bold; }
+        button:hover { background-color: #123456; }
+        
+        /* Table Styles */
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; display: none; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f8f9fa; color: #555; font-weight: 600; }
+        tr:hover { background-color: #f1f5f9; }
+        .btn-view { background-color: #f8c750; color: #1a4a7c; border-radius: 4px; padding: 6px 12px; text-decoration: none; font-size: 14px; display: inline-block; }
+        .btn-view:hover { background-color: #e0b040; }
+        .status-active { color: green; font-weight: bold; }
+        .status-inactive { color: red; font-weight: bold; }
+
+        /* Snapshot Details Area */
+        #snapshotDetails { display: none; margin-top: 30px; padding-top: 20px; border-top: 2px solid #eee; }
+        pre { background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 5px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Carrier Snapshot Search</h2>
+    
+    <div class="search-container">
+        <input type="text" id="searchInput" placeholder="Enter DOT#, MC#, or Company Name...">
+        <button onclick="searchCarriers()">Search</button>
+    </div>
+    <div id="loadingMsg" style="display:none; color:#666;">Searching FMCSA databases...</div>
+
+    <table id="resultsTable">
+        <thead>
+            <tr>
+                <th>Legal Name</th>
+                <th>DOT Number</th>
+                <th>MC/Docket</th>
+                <th>Status</th>
+                <th>Location</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody id="tableBody">
+            </tbody>
+    </table>
+
+    <div id="snapshotDetails">
+        <h3 id="detailName">Loading Details...</h3>
+        <p><strong>Authority Status:</strong> <span id="detailAuth"></span></p>
+        <p><strong>Power Units:</strong> <span id="detailTrucks"></span></p>
+        <pre id="detailRawJson"></pre>
+    </div>
+</div>
+
+<script>
+    // --- PASTE YOUR TWO N8N WEBHOOK URLS HERE ---
+    const URL_SEARCH = "https://n8n.turbofreightllc.com/webhook/carrier-search";
+    const URL_SNAPSHOT = "https://n8n.turbofreightllc.com/webhook/carrier-snapshot";
+
+    async function searchCarriers() {
+        const query = document.getElementById("searchInput").value;
+        if(!query) return alert("Please enter a search term.");
+        
+        // Reset UI
+        document.getElementById("resultsTable").style.display = "none";
+        document.getElementById("snapshotDetails").style.display = "none";
+        document.getElementById("loadingMsg").style.display = "block";
+        const tbody = document.getElementById("tableBody");
+        tbody.innerHTML = "";
+
+        try {
+            const response = await fetch(`${URL_SEARCH}?q=${encodeURIComponent(query)}`);
+            const data = await response.json();
+            document.getElementById("loadingMsg").style.display = "none";
+
+            if(data.length === 0) {
+                return alert("No companies found.");
+            }
+
+            // Build the table rows
+            data.forEach(company => {
+                const tr = document.createElement("tr");
+                const isOpActive = company.status_code === 'A';
+                
+                tr.innerHTML = `
+                    <td><strong>${company.legal_name || 'N/A'}</strong></td>
+                    <td>${company.dot_number || 'N/A'}</td>
+                    <td>${company.docket1 || 'N/A'}</td>
+                    <td class="${isOpActive ? 'status-active' : 'status-inactive'}">${isOpActive ? 'Active' : 'Inactive'}</td>
+                    <td>${company.phy_city || ''}, ${company.phy_state || ''}</td>
+                    <td><button class="btn-view" onclick="getDeepSnapshot('${company.dot_number}')">Select</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            document.getElementById("resultsTable").style.display = "table";
+
+        } catch (error) {
+            document.getElementById("loadingMsg").style.display = "none";
+            alert("Error searching. Check your n8n search webhook.");
+        }
+    }
+
+    async function getDeepSnapshot(dotNumber) {
+        document.getElementById("resultsTable").style.display = "none";
+        document.getElementById("snapshotDetails").style.display = "block";
+        document.getElementById("detailName").innerText = "Fetching live snapshot data...";
+        document.getElementById("detailRawJson").innerText = "";
+
+        try {
+            const response = await fetch(`${URL_SNAPSHOT}?dot=${dotNumber}`);
+            const data = await response.json();
+            
+            // Map the QCMobile data
+            const carrier = data.content.carrier;
+            document.getElementById("detailName").innerText = carrier.legalName;
+            document.getElementById("detailAuth").innerText = carrier.allowedToOperate === 'Y' ? "Authorized" : "Not Authorized";
+            document.getElementById("detailTrucks").innerText = carrier.totalPowerUnits;
+            
+            // Show the raw payload for you to decide what else to map later
+            document.getElementById("detailRawJson").innerText = JSON.stringify(carrier, null, 2);
+
+        } catch (error) {
+            document.getElementById("detailName").innerText = "Error pulling live snapshot.";
+        }
+    }
+</script>
+
+</body>
+</html>
