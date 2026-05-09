@@ -154,12 +154,14 @@
 
 </div>
 <script>
-const N8N_SEARCH  = "https://n8n.turbofreightllc.com/webhook/carrier-search";
-const FMCSA_KEY   = "765f2002350d7989b1fef32b3522639c55fc27a8";
-const FMCSA_BASE  = "https://mobile.fmcsa.dot.gov/qc/services/carriers";
-const SOCRATA_INS = "https://data.transportation.gov/resource/d5mv-s8m3.json";
+const N8N_SEARCH      = "https://n8n.turbofreightllc.com/webhook/carrier-search";
+const FMCSA_KEY       = "765f2002350d7989b1fef32b3522639c55fc27a8";
+const FMCSA_BASE      = "https://mobile.fmcsa.dot.gov/qc/services/carriers";
+const SOCRATA_INS     = "https://data.transportation.gov/resource/d5mv-s8m3.json";
 const OPENCORP_SEARCH = "https://api.opencorporates.com/v0.4/companies/search";
 const OPENCORP_BASE   = "https://api.opencorporates.com/v0.4/companies";
+const OPENSOS_URL     = "https://api.opensosdata.com/v1/lookup";
+const OPENSOS_KEY     = ""; // Add your OpenSOSData API key here
 
 function fmcsa(path) {
   return fetch(`${FMCSA_BASE}${path}?webKey=${FMCSA_KEY}`)
@@ -170,6 +172,11 @@ function socrata(url, params) {
     .then(r => r.ok ? r.json() : []).catch(() => []);
 }
 function fmt(v, fallback) { return (v !== null && v !== undefined && v !== '') ? v : (fallback !== undefined ? fallback : '—'); }
+function formatMoney(value, suffix = '') {
+  const n = parseFloat(value);
+  if (Number.isFinite(n)) return '$' + n.toLocaleString() + suffix;
+  return '—';
+}
 function pct(v) { return v != null ? v.toFixed(1) + '%' : '—'; }
 function oosColor(rate, avg) {
   if (rate == null) return 'safe';
@@ -206,6 +213,42 @@ async function openCorporatesCompany(company) {
   const url = `${OPENCORP_BASE}/${company.jurisdiction_code}/${company.company_number}`;
   const data = await fetch(url).then(r => r.ok ? r.json() : null).catch(() => null);
   return data?.results?.company || null;
+}
+
+async function openSOSLookup(name, state) {
+  if (!name || !state || !OPENSOS_KEY) return null;
+  try {
+    const payload = {
+      query: name,
+      region: 'US',
+      jurisdiction: state.toUpperCase(),
+      sources: ['sos'],
+      page: 1,
+      per_page: 5
+    };
+    const response = await fetch(OPENSOS_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': OPENSOS_KEY
+      },
+      body: JSON.stringify(payload)
+    });
+    const data = await response.ok ? await response.json() : null;
+    const item = data?.results?.[0] || data?.data?.[0] || null;
+    if (!item) return null;
+    return {
+      entityName: item.name || item.company_name || name,
+      state: item.state || item.jurisdiction || state.toUpperCase(),
+      status: item.status || item.current_status || item.entity_status,
+      address: item.address || item.principal_address || item.registered_address || '',
+      registeredAgent: item.registered_agent || item.agent_name || '',
+      registeredSince: item.registration_date || item.incorporation_date || item.filing_date || '',
+      raw: item
+    };
+  } catch (err) {
+    return null;
+  }
 }
 
 async function searchCarriers() {
@@ -279,6 +322,7 @@ async function loadSnapshot(dot, name) {
 
   const c          = mainData.content.carrier;
   let corpInfo      = null;
+  let sosInfo       = null;
   try {
     const companyCandidate = await openCorporatesSearch(name || c.legalName || c.dbaName, c.phyState);
     const corpData = companyCandidate ? await openCorporatesCompany(companyCandidate) : null;
@@ -296,6 +340,11 @@ async function loadSnapshot(dot, name) {
     };
   } catch (err) {
     corpInfo = null;
+  }
+  try {
+    sosInfo = await openSOSLookup(name || c.legalName || c.dbaName, c.phyState);
+  } catch (err) {
+    sosInfo = null;
   }
   const basics     = basicsData?.content?.basics || [];
   const cargo      = cargoData?.content?.cargoCarried || [];
@@ -317,6 +366,8 @@ async function loadSnapshot(dot, name) {
   const pendingRevoke = authority.filter(a => a.applicationStatus === 'P');
   if (pendingRevoke.length > 0)
     alerts.push({type:'warning', msg:'⚠️ This carrier has a pending authority revocation.'});
+  if (sosInfo?.status && !/active/i.test(sosInfo.status))
+    alerts.push({type:'warning', msg:`⚠️ SOS status: ${sosInfo.status}`});
 
   document.getElementById("alertBanners").innerHTML = alerts.map(a =>
     `<div class="alert-banner alert-${a.type}">${a.msg}</div>`).join('');
@@ -426,6 +477,18 @@ async function loadSnapshot(dot, name) {
       </div>
       <div class="grid-2" style="margin-top:12px; gap:12px;">
         <div class="stat-box">
+          <div class="stat-label">SOS Lookup</div>
+          <div class="stat-val sm ${sosInfo ? 'green' : 'gray'}">${sosInfo ? 'Found' : OPENSOS_KEY ? 'Not found' : 'API Key missing'}</div>
+          <div class="stat-sub">${sosInfo ? `${fmt(sosInfo.state)} · ${fmt(sosInfo.entityName)}` : (OPENSOS_KEY ? 'Secretary of State lookup attempted' : 'Configure OpenSOSData key to enable SOS lookup')}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">SOS Status</div>
+          <div class="stat-val sm ${sosInfo?.status && sosInfo.status.toLowerCase().includes('active') ? 'green' : sosInfo?.status ? 'red' : 'gray'}">${fmt(sosInfo?.status,'Unknown')}</div>
+          <div class="stat-sub">${sosInfo?.registeredSince ? `Registered ${dateStr(sosInfo.registeredSince)}` : 'SOS entity status'}</div>
+        </div>
+      </div>
+      <div class="grid-2" style="margin-top:12px; gap:12px;">
+        <div class="stat-box">
           <div class="stat-label">Registry Name</div>
           <div class="stat-val sm">${fmt(corpInfo?.companyName,'—')}</div>
           <div class="stat-sub">${fmt(corpInfo?.jurisdiction)}</div>
@@ -434,6 +497,24 @@ async function loadSnapshot(dot, name) {
           <div class="stat-label">Agent / Officer</div>
           <div class="stat-val sm">${fmt(corpInfo?.officerName || corpInfo?.companyName,'—')}</div>
           <div class="stat-sub">${fmt(corpInfo?.officerRole || corpInfo?.address || 'No public agent info')}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Business Status</div>
+      <div class="grid-3" style="margin-bottom:14px;">
+        <div class="stat-box">
+          <div class="stat-label">Current Status</div>
+          <div class="stat-val sm ${corpInfo?.status && corpInfo.status.toLowerCase().includes('active') ? 'green' : 'red'}">${fmt(corpInfo?.status,'Unknown')}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Registered Since</div>
+          <div class="stat-val sm">${dateStr(corpInfo?.incorporationDate)}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Registered Address</div>
+          <div class="stat-val sm" style="font-size:13px;line-height:1.4;">${fmt(corpInfo?.address,'Not available')}</div>
         </div>
       </div>
     </div>
@@ -480,19 +561,29 @@ async function loadSnapshot(dot, name) {
     </div>
 
     <div class="section">
-      <div class="section-title">Insurance on File</div>
+      <div class="section-title">Insurance Summary</div>
       <div class="grid-3" style="margin-bottom:14px;">
         <div class="stat-box">
           <div class="stat-label">BIPD Required</div>
-          <div class="stat-val sm">${c.bipdInsuranceRequired==='Y'?'$'+parseInt(c.bipdRequiredAmount||0).toLocaleString()+'k':'No'}</div>
+          <div class="stat-val sm">${c.bipdInsuranceRequired==='Y'?formatMoney(c.bipdRequiredAmount,'k'):'No'}</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">BIPD On File</div>
-          <div class="stat-val sm ${parseInt(c.bipdInsuranceOnFile||0)>0?'green':'red'}">$${parseInt(c.bipdInsuranceOnFile||0).toLocaleString()}k</div>
+          <div class="stat-val sm ${parseInt(c.bipdInsuranceOnFile||0)>0?'green':'red'}">${c.bipdInsuranceOnFile?formatMoney(c.bipdInsuranceOnFile,'k'):'—'}</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Bond On File</div>
-          <div class="stat-val sm">${parseInt(c.bondInsuranceOnFile||0).toLocaleString()}</div>
+          <div class="stat-val sm">${c.bondInsuranceOnFile?formatMoney(c.bondInsuranceOnFile):'—'}</div>
+        </div>
+      </div>
+      <div class="grid-2" style="gap:12px; margin-bottom:14px;">
+        <div class="stat-box" style="background:#f8fafc; border-color:var(--border);">
+          <div class="stat-label">Insurance Match</div>
+          <div class="stat-val sm ${c.bipdInsuranceRequired==='Y' && parseInt(c.bipdInsuranceOnFile||0) >= parseInt(c.bipdRequiredAmount||0) ? 'green' : 'red'}">${c.bipdInsuranceRequired==='Y' ? (parseInt(c.bipdInsuranceOnFile||0) >= parseInt(c.bipdRequiredAmount||0) ? 'Meets required limits' : 'Below required limits') : 'No requirement'}</div>
+        </div>
+        <div class="stat-box" style="background:#f8fafc; border-color:var(--border);">
+          <div class="stat-label">Insurance Records</div>
+          <div class="stat-val sm ${insurance.length>0 ? 'green' : 'gray'}">${insurance.length>0 ? insurance.length + ' active entries' : 'No records found'}</div>
         </div>
       </div>
       <table class="data-table">
