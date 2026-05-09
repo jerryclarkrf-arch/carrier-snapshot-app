@@ -158,6 +158,8 @@ const N8N_SEARCH  = "https://n8n.turbofreightllc.com/webhook/carrier-search";
 const FMCSA_KEY   = "765f2002350d7989b1fef32b3522639c55fc27a8";
 const FMCSA_BASE  = "https://mobile.fmcsa.dot.gov/qc/services/carriers";
 const SOCRATA_INS = "https://data.transportation.gov/resource/d5mv-s8m3.json";
+const OPENCORP_SEARCH = "https://api.opencorporates.com/v0.4/companies/search";
+const OPENCORP_BASE   = "https://api.opencorporates.com/v0.4/companies";
 
 function fmcsa(path) {
   return fetch(`${FMCSA_BASE}${path}?webKey=${FMCSA_KEY}`)
@@ -180,6 +182,30 @@ function badgeClass(code) { return code==='A' ? 'badge-green' : code==='I' ? 'ba
 function dateStr(s) {
   if (!s) return '—';
   try { return new Date(s).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); } catch(e) { return s; }
+}
+
+function normalizeString(value) {
+  return (value || '').toString().trim().replace(/\s+/g, ' ').replace(/[^a-z0-9 ]/gi, '').toLowerCase();
+}
+
+async function openCorporatesSearch(name, state) {
+  if (!name) return null;
+  const params = new URLSearchParams({ q: name, per_page: 5 });
+  if (state) params.set('jurisdiction_code', `us_${state.toLowerCase()}`);
+  const url = `${OPENCORP_SEARCH}?${params}`;
+  const data = await fetch(url).then(r => r.ok ? r.json() : null).catch(() => null);
+  const companies = data?.results?.companies || [];
+  if (!companies.length) return null;
+  const normalizedName = normalizeString(name);
+  const exactMatch = companies.find(item => normalizeString(item.company.name) === normalizedName);
+  return exactMatch ? exactMatch.company : companies[0].company;
+}
+
+async function openCorporatesCompany(company) {
+  if (!company?.jurisdiction_code || !company?.company_number) return null;
+  const url = `${OPENCORP_BASE}/${company.jurisdiction_code}/${company.company_number}`;
+  const data = await fetch(url).then(r => r.ok ? r.json() : null).catch(() => null);
+  return data?.results?.company || null;
 }
 
 async function searchCarriers() {
@@ -252,6 +278,25 @@ async function loadSnapshot(dot, name) {
   }
 
   const c          = mainData.content.carrier;
+  let corpInfo      = null;
+  try {
+    const companyCandidate = await openCorporatesSearch(name || c.legalName || c.dbaName, c.phyState);
+    const corpData = companyCandidate ? await openCorporatesCompany(companyCandidate) : null;
+    const officer = Array.isArray(corpData?.officers) ? corpData.officers[0] : null;
+    corpInfo = {
+      companyName: corpData?.name || companyCandidate?.name,
+      jurisdiction: corpData?.jurisdiction_code || companyCandidate?.jurisdiction_code,
+      status: corpData?.current_status || corpData?.current_status_description,
+      address: corpData?.registered_address || corpData?.registered_office_address || '',
+      incorporationDate: corpData?.incorporation_date,
+      officerName: officer?.name,
+      officerRole: officer?.position,
+      officerStart: officer?.start_date,
+      officerEnd: officer?.end_date
+    };
+  } catch (err) {
+    corpInfo = null;
+  }
   const basics     = basicsData?.content?.basics || [];
   const cargo      = cargoData?.content?.cargoCarried || [];
   const ops        = opsData?.content?.operationClassification || [];
@@ -362,6 +407,34 @@ async function loadSnapshot(dot, name) {
         <div style="font-size:14px;font-weight:600;margin-bottom:8px;">${fmt(c.censusTypeId?.censusTypeDesc)}</div>
         <div style="font-size:12px;color:var(--muted);">Safety Rating</div>
         <div style="font-size:14px;font-weight:600;">${fmt(c.safetyRating,'Not Rated')}</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Contact Information</div>
+      <div class="grid-2">
+        <div class="stat-box">
+          <div class="stat-label">FMCSA Phone</div>
+          <div class="stat-val sm">${fmt(c.telephone,'—')}</div>
+          <div class="stat-sub">Primary carrier phone from FMCSA</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Public Registry</div>
+          <div class="stat-val sm ${corpInfo ? 'green' : 'gray'}">${corpInfo ? 'Found' : 'Not found'}</div>
+          <div class="stat-sub">${corpInfo ? `${fmt(corpInfo.status)} · ${dateStr(corpInfo.incorporationDate)}` : 'OpenCorporates lookup attempted'}</div>
+        </div>
+      </div>
+      <div class="grid-2" style="margin-top:12px; gap:12px;">
+        <div class="stat-box">
+          <div class="stat-label">Registry Name</div>
+          <div class="stat-val sm">${fmt(corpInfo?.companyName,'—')}</div>
+          <div class="stat-sub">${fmt(corpInfo?.jurisdiction)}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Agent / Officer</div>
+          <div class="stat-val sm">${fmt(corpInfo?.officerName || corpInfo?.companyName,'—')}</div>
+          <div class="stat-sub">${fmt(corpInfo?.officerRole || corpInfo?.address || 'No public agent info')}</div>
+        </div>
       </div>
     </div>
 
