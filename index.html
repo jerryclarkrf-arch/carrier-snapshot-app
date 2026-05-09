@@ -84,6 +84,7 @@
   .stat-val.green { color: var(--green); }
   .stat-val.red { color: var(--red); }
   .stat-val.orange { color: var(--orange); }
+  .stat-val.gray { color: var(--muted); }
   .stat-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
 
   .oos-bar-wrap { margin-top: 6px; background: var(--border); border-radius: 4px; height: 6px; overflow: hidden; }
@@ -154,10 +155,11 @@
 
 </div>
 <script>
-const N8N_SEARCH  = "https://n8n.turbofreightllc.com/webhook/carrier-search";
-const FMCSA_KEY   = "765f2002350d7989b1fef32b3522639c55fc27a8";
-const FMCSA_BASE  = "https://mobile.fmcsa.dot.gov/qc/services/carriers";
-const SOCRATA_INS = "https://data.transportation.gov/resource/d5mv-s8m3.json";
+const N8N_SEARCH      = "https://n8n.turbofreightllc.com/webhook/carrier-search";
+const FMCSA_KEY       = "765f2002350d7989b1fef32b3522639c55fc27a8";
+const FMCSA_BASE      = "https://mobile.fmcsa.dot.gov/qc/services/carriers";
+const SOCRATA_INS     = "https://data.transportation.gov/resource/qh9u-swkp.json"; // Fixed ID
+const SOCRATA_CARRIER = "https://data.transportation.gov/resource/az4n-8mr2.json";
 
 function fmcsa(path) {
   return fetch(`${FMCSA_BASE}${path}?webKey=${FMCSA_KEY}`)
@@ -169,6 +171,7 @@ function socrata(url, params) {
 }
 function fmt(v, fallback) { return (v !== null && v !== undefined && v !== '') ? v : (fallback !== undefined ? fallback : '—'); }
 function pct(v) { return v != null ? v.toFixed(1) + '%' : '—'; }
+function hasIns(v) { return v === 'Y' || parseInt(v||0) > 0; }
 function oosColor(rate, avg) {
   if (rate == null) return 'safe';
   if (rate > avg * 1.5) return 'danger';
@@ -180,6 +183,19 @@ function badgeClass(code) { return code==='A' ? 'badge-green' : code==='I' ? 'ba
 function dateStr(s) {
   if (!s) return '—';
   try { return new Date(s).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); } catch(e) { return s; }
+}
+
+// Time calculation for Authority age
+function calcActiveTime(dateStr) {
+  if(!dateStr) return '—';
+  const start = new Date(dateStr);
+  const now = new Date();
+  const diffMonths = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+  if (diffMonths < 1) return '< 1 month';
+  if (diffMonths < 12) return `${diffMonths} months`;
+  const yrs = Math.floor(diffMonths/12);
+  const mths = diffMonths % 12;
+  return `${yrs} yr${yrs>1?'s':''} ${mths > 0 ? mths + ' mo' : ''}`;
 }
 
 async function searchCarriers() {
@@ -233,7 +249,7 @@ async function loadSnapshot(dot, name) {
   document.getElementById("alertBanners").innerHTML = "";
   document.getElementById("loadingStage").textContent = "Fetching all FMCSA data in parallel...";
 
-  const [mainData, basicsData, cargoData, opsData, docketData, authorityData, oosData, insData] = await Promise.all([
+  const [mainData, basicsData, cargoData, opsData, docketData, authorityData, oosData, insData, carrierSocrata] = await Promise.all([
     fmcsa(`/${dot}`),
     fmcsa(`/${dot}/basics`),
     fmcsa(`/${dot}/cargo-carried`),
@@ -241,7 +257,8 @@ async function loadSnapshot(dot, name) {
     fmcsa(`/${dot}/docket-numbers`),
     fmcsa(`/${dot}/authority`),
     fmcsa(`/${dot}/oos`),
-    socrata(SOCRATA_INS, { dot_number: dot, '$limit': 20 })
+    socrata(SOCRATA_INS, { dot_number: dot, '$limit': 20 }),
+    socrata(SOCRATA_CARRIER, { dot_number: dot })
   ]);
 
   if (!mainData || !mainData.content) {
@@ -259,6 +276,7 @@ async function loadSnapshot(dot, name) {
   const authority  = authorityData?.content?.authority || [];
   const oos        = oosData?.content?.oos || [];
   const insurance  = Array.isArray(insData) ? insData : [];
+  const profile    = (carrierSocrata && carrierSocrata.length > 0) ? carrierSocrata[0] : {};
 
   // ── Alert banners ──────────────────────────────────────────
   const alerts = [];
@@ -266,15 +284,26 @@ async function loadSnapshot(dot, name) {
     alerts.push({type:'danger', msg:'⚠️ This carrier is NOT authorized to operate.'});
   if (c.commonAuthorityStatus === 'I')
     alerts.push({type:'danger', msg:'⚠️ Common authority is Inactive.'});
-  const pendingCancel = insurance.filter(i => i.ins_cancellation_date && new Date(i.ins_cancellation_date) > new Date());
+  const pendingCancel = insurance.filter(i => i.cancl_effective_date && new Date(i.cancl_effective_date) > new Date());
   if (pendingCancel.length > 0)
-    alerts.push({type:'danger', msg:`⚠️ Pending insurance cancellation on ${dateStr(pendingCancel[0].ins_cancellation_date)}!`});
+    alerts.push({type:'danger', msg:`⚠️ Pending insurance cancellation on ${dateStr(pendingCancel[0].cancl_effective_date)}!`});
   const pendingRevoke = authority.filter(a => a.applicationStatus === 'P');
   if (pendingRevoke.length > 0)
     alerts.push({type:'warning', msg:'⚠️ This carrier has a pending authority revocation.'});
 
   document.getElementById("alertBanners").innerHTML = alerts.map(a =>
     `<div class="alert-banner alert-${a.type}">${a.msg}</div>`).join('');
+
+  // ── Calculate Active Authority Durations ───────────────────
+  let commonActiveTime = '—', contractActiveTime = '—', brokerActiveTime = '—';
+  authority.forEach(a => {
+    if (a.authorityStatus === 'A') {
+      const activeText = calcActiveTime(a.grantedDate);
+      if (a.operatingAuthorityType === 'Common') commonActiveTime = activeText;
+      if (a.operatingAuthorityType === 'Contract') contractActiveTime = activeText;
+      if (a.operatingAuthorityType === 'Broker') brokerActiveTime = activeText;
+    }
+  });
 
   // ── Build sections ─────────────────────────────────────────
   const docketStr = dockets.map(d=>`${d.prefix||''}${d.docketNumber}`).join(', ') || '—';
@@ -299,22 +328,25 @@ async function loadSnapshot(dot, name) {
       </tr>`).join('')
     : '<tr><td colspan="4" style="color:var(--muted);text-align:center;padding:16px;">No authority records</td></tr>';
 
+  // ── Dynamic Insurance Table Builder (qh9u-swkp mapping) ────
   const insRows = insurance.length > 0
     ? insurance.map(i => {
-        const isCancelled = i.ins_cancellation_date && new Date(i.ins_cancellation_date) < new Date();
-        const isPending   = i.ins_cancellation_date && new Date(i.ins_cancellation_date) > new Date();
+        const isCancelled = i.cancl_effective_date && new Date(i.cancl_effective_date) < new Date();
+        const isPending   = i.cancl_effective_date && new Date(i.cancl_effective_date) > new Date();
+        const typeStr     = i.mod_col_1 || i.ins_type_desc || i.ins_form_code || 'Unknown';
         return `<tr>
-          <td>${fmt(i.ins_type)}</td>
-          <td>${fmt(i.ins_ins_code)}</td>
-          <td>$${parseInt(i.coverage_from||0).toLocaleString()}</td>
-          <td>${dateStr(i.ins_effective_dt)}</td>
-          <td>${isPending
-            ? `<span class="badge badge-red">Cancels ${dateStr(i.ins_cancellation_date)}</span>`
-            : isCancelled
-              ? `<span class="badge badge-gray">Cancelled ${dateStr(i.ins_cancellation_date)}</span>`
+          <td>${fmt(typeStr)}</td>
+          <td>${fmt(i.name_company)}</td>
+          <td style="font-family:'IBM Plex Mono',monospace;">${fmt(i.policy_no)}</td>
+          <td>$${parseInt(i.underl_lim_amount||0).toLocaleString()}</td>
+          <td>${dateStr(i.effective_date)}</td>
+          <td>${isPending 
+            ? `<span class="badge badge-red">Cancels ${dateStr(i.cancl_effective_date)}</span>` 
+            : isCancelled 
+              ? `<span class="badge badge-gray">Cancelled ${dateStr(i.cancl_effective_date)}</span>` 
               : '<span class="badge badge-green">Active</span>'}</td>
         </tr>`;}).join('')
-    : '<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:16px;">No insurance records found</td></tr>';
+    : '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:16px;">No insurance records found</td></tr>';
 
   const basicCards = basics.length > 0
     ? basics.map(b => {
@@ -325,7 +357,7 @@ async function loadSnapshot(dot, name) {
           <div class="stat-val sm ${isAlert?'red':p>75?'orange':p!=null?'green':''}">${p!=null?p+'th pct':'N/A'}</div>
           <div class="stat-sub">${isAlert?'⚠️ ALERT':'Measure: '+fmt(b.measure,'N/A')}</div>
         </div>`;}).join('')
-    : '<p style="color:var(--muted);font-size:13px;">No BASIC scores available (carrier may not have enough inspections)</p>';
+    : '<p style="color:var(--muted);font-size:13px;">No BASIC scores available</p>';
 
   const driverAvg  = parseFloat(c.driverOosRateNationalAverage)  || 5.51;
   const vehicleAvg = parseFloat(c.vehicleOosRateNationalAverage) || 20.72;
@@ -345,7 +377,7 @@ async function loadSnapshot(dot, name) {
   // ── Full render ────────────────────────────────────────────
   document.getElementById("snapshotContent").innerHTML = `
     <div class="snap-header">
-      <div>
+      <div style="flex:1;">
         <div class="snap-name">${fmt(c.legalName)}${c.dbaName?` <span style="font-weight:400;font-size:15px;color:var(--muted);">dba ${c.dbaName}</span>`:''}
         </div>
         <div class="snap-meta">DOT# ${c.dotNumber} &nbsp;·&nbsp; MC/FF: ${docketStr} &nbsp;·&nbsp; ${fmt(c.carrierOperation?.carrierOperationDesc)}</div>
@@ -357,12 +389,31 @@ async function loadSnapshot(dot, name) {
           <span class="badge ${c.mcs150Outdated==='Y'?'badge-red':'badge-gray'}">MCS-150 ${c.mcs150Outdated==='Y'?'Outdated':'Current'}</span>
         </div>
       </div>
-      <div style="text-align:right;">
+      <div style="text-align:right; margin-left: 20px;">
         <div style="font-size:12px;color:var(--muted);">Entity Type</div>
         <div style="font-size:14px;font-weight:600;margin-bottom:8px;">${fmt(c.censusTypeId?.censusTypeDesc)}</div>
         <div style="font-size:12px;color:var(--muted);">Safety Rating</div>
         <div style="font-size:14px;font-weight:600;">${fmt(c.safetyRating,'Not Rated')}</div>
       </div>
+    </div>
+
+    <div class="section" style="background: #f8fafc; border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-top: -10px; display: flex; flex-wrap: wrap; gap: 24px; justify-content: space-between;">
+        <div>
+            <div class="stat-label">MC Owner / Contact</div>
+            <div style="font-size:14px; font-weight:600; color:var(--navy);">${fmt(profile.contact_name, c.legalName)}</div>
+        </div>
+        <div>
+            <div class="stat-label">Phone Number</div>
+            <div style="font-size:14px; font-weight:600; color:var(--navy);">${fmt(profile.telephone, c.phyTelephone)}</div>
+        </div>
+        <div>
+            <div class="stat-label">Email Address</div>
+            <div style="font-size:14px; font-weight:600; color:var(--navy);">${fmt(profile.email_address, c.emailAddress)}</div>
+        </div>
+        <div>
+            <div class="stat-label">Physical Address</div>
+            <div style="font-size:14px; font-weight:600; color:var(--navy);">${[c.phyStreet,c.phyCity,c.phyState].filter(Boolean).join(', ')}</div>
+        </div>
     </div>
 
     <div class="section">
@@ -372,10 +423,6 @@ async function loadSnapshot(dot, name) {
         <div class="stat-box"><div class="stat-label">Total Drivers</div><div class="stat-val">${fmt(c.totalDrivers,'—')}</div></div>
         <div class="stat-box"><div class="stat-label">Total Crashes</div><div class="stat-val ${c.crashTotal>0?'red':'green'}">${fmt(c.crashTotal,0)}</div></div>
         <div class="stat-box"><div class="stat-label">Fatal Crashes</div><div class="stat-val ${c.fatalCrash>0?'red':'green'}">${fmt(c.fatalCrash,0)}</div></div>
-        <div class="stat-box"><div class="stat-label">Injury Crashes</div><div class="stat-val ${c.injCrash>0?'orange':'green'}">${fmt(c.injCrash,0)}</div></div>
-        <div class="stat-box"><div class="stat-label">Tow-away Crashes</div><div class="stat-val ${c.towawayCrash>0?'orange':'green'}">${fmt(c.towawayCrash,0)}</div></div>
-        <div class="stat-box"><div class="stat-label">Hazmat Inspections</div><div class="stat-val">${fmt(c.hazmatInsp,0)}</div></div>
-        <div class="stat-box"><div class="stat-label">Is Passenger Carrier</div><div class="stat-val sm">${c.isPassengerCarrier==='Y'?'Yes':'No'}</div></div>
       </div>
     </div>
 
@@ -385,14 +432,17 @@ async function loadSnapshot(dot, name) {
         <div class="stat-box">
           <div class="stat-label">Common Authority</div>
           <div class="stat-val sm ${c.commonAuthorityStatus==='A'?'green':'red'}">${authLabel(c.commonAuthorityStatus)}</div>
+          <div class="stat-sub">Active: ${c.commonAuthorityStatus==='A'?commonActiveTime:'—'}</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Contract Authority</div>
           <div class="stat-val sm ${c.contractAuthorityStatus==='A'?'green':''}">${authLabel(c.contractAuthorityStatus)}</div>
+          <div class="stat-sub">Active: ${c.contractAuthorityStatus==='A'?contractActiveTime:'—'}</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Broker Authority</div>
           <div class="stat-val sm ${c.brokerAuthorityStatus==='A'?'green':''}">${authLabel(c.brokerAuthorityStatus)}</div>
+          <div class="stat-sub">Active: ${c.brokerAuthorityStatus==='A'?brokerActiveTime:'—'}</div>
         </div>
       </div>
       <table class="data-table">
@@ -402,28 +452,23 @@ async function loadSnapshot(dot, name) {
     </div>
 
     <div class="section">
-      <div class="section-title">MC / Docket Numbers</div>
-      <div class="tag-list">${docketTags}</div>
-    </div>
-
-    <div class="section">
       <div class="section-title">Insurance on File</div>
       <div class="grid-3" style="margin-bottom:14px;">
         <div class="stat-box">
-          <div class="stat-label">BIPD Required</div>
-          <div class="stat-val sm">${c.bipdInsuranceRequired==='Y'?'$'+parseInt(c.bipdRequiredAmount||0).toLocaleString()+'k':'No'}</div>
+          <div class="stat-label">BIPD On File</div>
+          <div class="stat-val sm ${hasIns(c.bipdInsuranceOnFile)?'green':'red'}">${hasIns(c.bipdInsuranceOnFile) ? '$'+parseInt(c.bipdInsuranceOnFile||0).toLocaleString() : 'NO'}</div>
         </div>
         <div class="stat-box">
-          <div class="stat-label">BIPD On File</div>
-          <div class="stat-val sm ${parseInt(c.bipdInsuranceOnFile||0)>0?'green':'red'}">$${parseInt(c.bipdInsuranceOnFile||0).toLocaleString()}k</div>
+          <div class="stat-label">Cargo On File</div>
+          <div class="stat-val sm ${hasIns(c.cargoInsuranceOnFile)?'green':'gray'}">${hasIns(c.cargoInsuranceOnFile)?'YES':'NO'}</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Bond On File</div>
-          <div class="stat-val sm">${parseInt(c.bondInsuranceOnFile||0).toLocaleString()}</div>
+          <div class="stat-val sm ${hasIns(c.bondInsuranceOnFile)?'green':'gray'}">${hasIns(c.bondInsuranceOnFile)?'YES':'NO'}</div>
         </div>
       </div>
       <table class="data-table">
-        <thead><tr><th>Form/Type</th><th>Insurer Code</th><th>Coverage</th><th>Effective Date</th><th>Status</th></tr></thead>
+        <thead><tr><th>Form/Type</th><th>Provider</th><th>Policy #</th><th>Coverage</th><th>Effective Date</th><th>Status</th></tr></thead>
         <tbody>${insRows}</tbody>
       </table>
     </div>
@@ -440,21 +485,6 @@ async function loadSnapshot(dot, name) {
     <div class="section">
       <div class="section-title">CSA BASIC Scores</div>
       <div style="display:flex;flex-wrap:wrap;gap:12px;">${basicCards}</div>
-    </div>
-
-    <div class="section">
-      <div class="section-title">Operation Classification</div>
-      <div class="tag-list" style="margin-bottom:16px;">${opsTags}</div>
-      <div class="section-title">Cargo Transported</div>
-      <div class="tag-list">${cargoTags}</div>
-    </div>
-
-    <div class="section">
-      <div class="section-title">Physical Address</div>
-      <div class="stat-box" style="display:inline-block;">
-        <div style="font-size:14px;">${[c.phyStreet,c.phyCity,c.phyState,c.phyZipcode].filter(Boolean).join(', ')}</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px;">${fmt(c.phyCountry)}</div>
-      </div>
     </div>
   `;
 
