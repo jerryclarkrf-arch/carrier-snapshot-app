@@ -158,17 +158,21 @@
 const N8N_SEARCH      = "https://n8n.turbofreightllc.com/webhook/carrier-search";
 const FMCSA_KEY       = "765f2002350d7989b1fef32b3522639c55fc27a8";
 const FMCSA_BASE      = "https://mobile.fmcsa.dot.gov/qc/services/carriers";
-const SOCRATA_INS     = "https://data.transportation.gov/resource/qh9u-swkp.json"; // Fixed ID
+const SOCRATA_INS     = "https://data.transportation.gov/resource/qh9u-swkp.json"; 
 const SOCRATA_CARRIER = "https://data.transportation.gov/resource/az4n-8mr2.json";
 
+// Added cache: 'no-store' to bypass browser caching and fetch live data
 function fmcsa(path) {
-  return fetch(`${FMCSA_BASE}${path}?webKey=${FMCSA_KEY}`)
+  return fetch(`${FMCSA_BASE}${path}?webKey=${FMCSA_KEY}`, { cache: 'no-store' })
     .then(r => r.ok ? r.json() : null).catch(() => null);
 }
+
+// Added cache: 'no-store' to bypass browser caching and fetch live data
 function socrata(url, params) {
-  return fetch(`${url}?${new URLSearchParams(params)}`)
+  return fetch(`${url}?${new URLSearchParams(params)}`, { cache: 'no-store' })
     .then(r => r.ok ? r.json() : []).catch(() => []);
 }
+
 function fmt(v, fallback) { return (v !== null && v !== undefined && v !== '') ? v : (fallback !== undefined ? fallback : '—'); }
 function pct(v) { return v != null ? v.toFixed(1) + '%' : '—'; }
 function hasIns(v) { return v === 'Y' || parseInt(v||0) > 0; }
@@ -185,7 +189,6 @@ function dateStr(s) {
   try { return new Date(s).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); } catch(e) { return s; }
 }
 
-// Time calculation for Authority age
 function calcActiveTime(dateStr) {
   if(!dateStr) return '—';
   const start = new Date(dateStr);
@@ -205,7 +208,8 @@ async function searchCarriers() {
   document.getElementById("snapshotSection").style.display = "none";
   setLoading(true, "Searching FMCSA databases...");
   try {
-    const r = await fetch(`${N8N_SEARCH}?q=${encodeURIComponent(query)}`);
+    // Added cache: 'no-store' to bypass browser caching and fetch live data
+    const r = await fetch(`${N8N_SEARCH}?q=${encodeURIComponent(query)}`, { cache: 'no-store' });
     if (!r.ok) throw new Error();
     const data = await r.json();
     setLoading(false);
