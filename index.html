@@ -160,8 +160,6 @@ const FMCSA_BASE      = "https://mobile.fmcsa.dot.gov/qc/services/carriers";
 const SOCRATA_INS     = "https://data.transportation.gov/resource/d5mv-s8m3.json";
 const OPENCORP_SEARCH = "https://api.opencorporates.com/v0.4/companies/search";
 const OPENCORP_BASE   = "https://api.opencorporates.com/v0.4/companies";
-const OPENSOS_URL     = "https://api.opensosdata.com/v1/lookup";
-const OPENSOS_KEY     = ""; // Add your OpenSOSData API key here
 
 function fmcsa(path) {
   return fetch(`${FMCSA_BASE}${path}?webKey=${FMCSA_KEY}`)
@@ -191,6 +189,18 @@ function dateStr(s) {
   try { return new Date(s).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); } catch(e) { return s; }
 }
 
+function calculateDuration(grantedDate) {
+  if (!grantedDate) return '—';
+  try {
+    const granted = new Date(grantedDate);
+    const now = new Date();
+    const years = now.getFullYear() - granted.getFullYear();
+    const months = now.getMonth() - granted.getMonth();
+    if (months < 0) return `${years - 1}y ${12 + months}m`;
+    return `${years}y ${months}m`;
+  } catch(e) { return '—'; }
+}
+
 function normalizeString(value) {
   return (value || '').toString().trim().replace(/\s+/g, ' ').replace(/[^a-z0-9 ]/gi, '').toLowerCase();
 }
@@ -213,42 +223,6 @@ async function openCorporatesCompany(company) {
   const url = `${OPENCORP_BASE}/${company.jurisdiction_code}/${company.company_number}`;
   const data = await fetch(url).then(r => r.ok ? r.json() : null).catch(() => null);
   return data?.results?.company || null;
-}
-
-async function openSOSLookup(name, state) {
-  if (!name || !state || !OPENSOS_KEY) return null;
-  try {
-    const payload = {
-      query: name,
-      region: 'US',
-      jurisdiction: state.toUpperCase(),
-      sources: ['sos'],
-      page: 1,
-      per_page: 5
-    };
-    const response = await fetch(OPENSOS_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': OPENSOS_KEY
-      },
-      body: JSON.stringify(payload)
-    });
-    const data = await response.ok ? await response.json() : null;
-    const item = data?.results?.[0] || data?.data?.[0] || null;
-    if (!item) return null;
-    return {
-      entityName: item.name || item.company_name || name,
-      state: item.state || item.jurisdiction || state.toUpperCase(),
-      status: item.status || item.current_status || item.entity_status,
-      address: item.address || item.principal_address || item.registered_address || '',
-      registeredAgent: item.registered_agent || item.agent_name || '',
-      registeredSince: item.registration_date || item.incorporation_date || item.filing_date || '',
-      raw: item
-    };
-  } catch (err) {
-    return null;
-  }
 }
 
 async function searchCarriers() {
@@ -322,7 +296,6 @@ async function loadSnapshot(dot, name) {
 
   const c          = mainData.content.carrier;
   let corpInfo      = null;
-  let sosInfo       = null;
   try {
     const companyCandidate = await openCorporatesSearch(name || c.legalName || c.dbaName, c.phyState);
     const corpData = companyCandidate ? await openCorporatesCompany(companyCandidate) : null;
@@ -334,17 +307,11 @@ async function loadSnapshot(dot, name) {
       address: corpData?.registered_address || corpData?.registered_office_address || '',
       incorporationDate: corpData?.incorporation_date,
       officerName: officer?.name,
-      officerRole: officer?.position,
-      officerStart: officer?.start_date,
-      officerEnd: officer?.end_date
+      officerEmail: officer?.email || corpData?.email || null,
+      officerRole: officer?.position
     };
   } catch (err) {
     corpInfo = null;
-  }
-  try {
-    sosInfo = await openSOSLookup(name || c.legalName || c.dbaName, c.phyState);
-  } catch (err) {
-    sosInfo = null;
   }
   const basics     = basicsData?.content?.basics || [];
   const cargo      = cargoData?.content?.cargoCarried || [];
@@ -366,8 +333,6 @@ async function loadSnapshot(dot, name) {
   const pendingRevoke = authority.filter(a => a.applicationStatus === 'P');
   if (pendingRevoke.length > 0)
     alerts.push({type:'warning', msg:'⚠️ This carrier has a pending authority revocation.'});
-  if (sosInfo?.status && !/active/i.test(sosInfo.status))
-    alerts.push({type:'warning', msg:`⚠️ SOS status: ${sosInfo.status}`});
 
   document.getElementById("alertBanners").innerHTML = alerts.map(a =>
     `<div class="alert-banner alert-${a.type}">${a.msg}</div>`).join('');
@@ -427,6 +392,10 @@ async function loadSnapshot(dot, name) {
   const vehicleAvg = parseFloat(c.vehicleOosRateNationalAverage) || 20.72;
   const hazmatAvg  = parseFloat(c.hazmatOosRateNationalAverage)  || 4.5;
 
+  // Calculate common active duration
+  const commonAuthority = authority.find(a => a.operatingAuthorityType === 'Common' && a.authorityStatus === 'A');
+  const commonActiveDuration = commonAuthority ? calculateDuration(commonAuthority.grantedDate) : '—';
+
   function oosBox(label, rate, avg, insp) {
     const color = oosColor(rate, avg);
     const barW = rate != null ? Math.min((rate/Math.max(avg*2,1))*100, 100) : 0;
@@ -463,73 +432,72 @@ async function loadSnapshot(dot, name) {
 
     <div class="section">
       <div class="section-title">Contact Information</div>
-      <div class="grid-2">
+      <div class="grid-3">
         <div class="stat-box">
-          <div class="stat-label">FMCSA Phone</div>
+          <div class="stat-label">MC Owner Name</div>
+          <div class="stat-val sm">${fmt(corpInfo?.officerName || c.legalName,'—')}</div>
+          <div class="stat-sub">${fmt(corpInfo?.officerRole || 'Primary contact')}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Phone Number</div>
           <div class="stat-val sm">${fmt(c.telephone,'—')}</div>
-          <div class="stat-sub">Primary carrier phone from FMCSA</div>
+          <div class="stat-sub">FMCSA registered phone</div>
         </div>
         <div class="stat-box">
-          <div class="stat-label">Public Registry</div>
-          <div class="stat-val sm ${corpInfo ? 'green' : 'gray'}">${corpInfo ? 'Found' : 'Not found'}</div>
-          <div class="stat-sub">${corpInfo ? `${fmt(corpInfo.status)} · ${dateStr(corpInfo.incorporationDate)}` : 'OpenCorporates lookup attempted'}</div>
-        </div>
-      </div>
-      <div class="grid-2" style="margin-top:12px; gap:12px;">
-        <div class="stat-box">
-          <div class="stat-label">SOS Lookup</div>
-          <div class="stat-val sm ${sosInfo ? 'green' : 'gray'}">${sosInfo ? 'Found' : OPENSOS_KEY ? 'Not found' : 'API Key missing'}</div>
-          <div class="stat-sub">${sosInfo ? `${fmt(sosInfo.state)} · ${fmt(sosInfo.entityName)}` : (OPENSOS_KEY ? 'Secretary of State lookup attempted' : 'Configure OpenSOSData key to enable SOS lookup')}</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">SOS Status</div>
-          <div class="stat-val sm ${sosInfo?.status && sosInfo.status.toLowerCase().includes('active') ? 'green' : sosInfo?.status ? 'red' : 'gray'}">${fmt(sosInfo?.status,'Unknown')}</div>
-          <div class="stat-sub">${sosInfo?.registeredSince ? `Registered ${dateStr(sosInfo.registeredSince)}` : 'SOS entity status'}</div>
-        </div>
-      </div>
-      <div class="grid-2" style="margin-top:12px; gap:12px;">
-        <div class="stat-box">
-          <div class="stat-label">Registry Name</div>
-          <div class="stat-val sm">${fmt(corpInfo?.companyName,'—')}</div>
-          <div class="stat-sub">${fmt(corpInfo?.jurisdiction)}</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Agent / Officer</div>
-          <div class="stat-val sm">${fmt(corpInfo?.officerName || corpInfo?.companyName,'—')}</div>
-          <div class="stat-sub">${fmt(corpInfo?.officerRole || corpInfo?.address || 'No public agent info')}</div>
+          <div class="stat-label">Email Address</div>
+          <div class="stat-val sm" style="font-size:12px;word-break:break-all;">${fmt(corpInfo?.officerEmail,'—')}</div>
+          <div class="stat-sub">From registry if available</div>
         </div>
       </div>
     </div>
 
     <div class="section">
-      <div class="section-title">Business Status</div>
-      <div class="grid-3" style="margin-bottom:14px;">
+      <div class="section-title">Business Information</div>
+      <div class="grid-2" style="margin-bottom:14px;">
         <div class="stat-box">
-          <div class="stat-label">Current Status</div>
+          <div class="stat-label">Company Status</div>
           <div class="stat-val sm ${corpInfo?.status && corpInfo.status.toLowerCase().includes('active') ? 'green' : 'red'}">${fmt(corpInfo?.status,'Unknown')}</div>
         </div>
         <div class="stat-box">
-          <div class="stat-label">Registered Since</div>
-          <div class="stat-val sm">${dateStr(corpInfo?.incorporationDate)}</div>
-        </div>
-        <div class="stat-box">
           <div class="stat-label">Registered Address</div>
-          <div class="stat-val sm" style="font-size:13px;line-height:1.4;">${fmt(corpInfo?.address,'Not available')}</div>
+          <div class="stat-val sm" style="font-size:12px;line-height:1.4;">${fmt(corpInfo?.address,'—')}</div>
         </div>
       </div>
     </div>
 
     <div class="section">
-      <div class="section-title">Key Figures</div>
+      <div class="section-title">Key Metrics</div>
       <div class="grid-4">
-        <div class="stat-box"><div class="stat-label">Power Units</div><div class="stat-val">${fmt(c.totalPowerUnits,'—')}</div></div>
-        <div class="stat-box"><div class="stat-label">Total Drivers</div><div class="stat-val">${fmt(c.totalDrivers,'—')}</div></div>
+        <div class="stat-box">
+          <div class="stat-label">Common Active</div>
+          <div class="stat-val sm green">${commonActiveDuration}</div>
+          <div class="stat-sub">Time in common authority</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Power Units (Trucks)</div>
+          <div class="stat-val">${fmt(c.totalPowerUnits,'—')}</div>
+          <div class="stat-sub">Total vehicles</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Total Drivers</div>
+          <div class="stat-val">${fmt(c.totalDrivers,'—')}</div>
+          <div class="stat-sub">Active drivers</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Total Inspections</div>
+          <div class="stat-val">${parseInt(c.driverInsp||0) + parseInt(c.vehicleInsp||0) + parseInt(c.hazmatInsp||0)}</div>
+          <div class="stat-sub">Driver + Vehicle + Hazmat</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Safety Metrics</div>
+      <div class="grid-4">
         <div class="stat-box"><div class="stat-label">Total Crashes</div><div class="stat-val ${c.crashTotal>0?'red':'green'}">${fmt(c.crashTotal,0)}</div></div>
         <div class="stat-box"><div class="stat-label">Fatal Crashes</div><div class="stat-val ${c.fatalCrash>0?'red':'green'}">${fmt(c.fatalCrash,0)}</div></div>
         <div class="stat-box"><div class="stat-label">Injury Crashes</div><div class="stat-val ${c.injCrash>0?'orange':'green'}">${fmt(c.injCrash,0)}</div></div>
         <div class="stat-box"><div class="stat-label">Tow-away Crashes</div><div class="stat-val ${c.towawayCrash>0?'orange':'green'}">${fmt(c.towawayCrash,0)}</div></div>
-        <div class="stat-box"><div class="stat-label">Hazmat Inspections</div><div class="stat-val">${fmt(c.hazmatInsp,0)}</div></div>
-        <div class="stat-box"><div class="stat-label">Is Passenger Carrier</div><div class="stat-val sm">${c.isPassengerCarrier==='Y'?'Yes':'No'}</div></div>
       </div>
     </div>
 
