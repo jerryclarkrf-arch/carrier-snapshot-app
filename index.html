@@ -157,7 +157,7 @@
 const N8N_SEARCH      = "https://n8n.turbofreightllc.com/webhook/carrier-search";
 const FMCSA_KEY       = "765f2002350d7989b1fef32b3522639c55fc27a8";
 const FMCSA_BASE      = "https://mobile.fmcsa.dot.gov/qc/services/carriers";
-const SOCRATA_INS     = "https://data.transportation.gov/resource/d5mv-s8m3.json";
+const SOCRATA_CARRIER = "https://data.transportation.gov/resource/az4n-8mr2.json"; // MCS-150 Carrier data
 const OPENCORP_SEARCH = "https://api.opencorporates.com/v0.4/companies/search";
 const OPENCORP_BASE   = "https://api.opencorporates.com/v0.4/companies";
 
@@ -168,6 +168,10 @@ function fmcsa(path) {
 function socrata(url, params) {
   return fetch(`${url}?${new URLSearchParams(params)}`)
     .then(r => r.ok ? r.json() : []).catch(() => []);
+}
+function getCarrierData(dotNumber) {
+  return socrata(SOCRATA_CARRIER, { dot_number: dotNumber, '$limit': 1 })
+    .then(data => Array.isArray(data) && data.length > 0 ? data[0] : null);
 }
 function fmt(v, fallback) { return (v !== null && v !== undefined && v !== '') ? v : (fallback !== undefined ? fallback : '—'); }
 function formatMoney(value, suffix = '') {
@@ -274,9 +278,9 @@ async function loadSnapshot(dot, name) {
   document.getElementById("snapshotLoading").style.display = "block";
   document.getElementById("snapshotContent").style.display = "none";
   document.getElementById("alertBanners").innerHTML = "";
-  document.getElementById("loadingStage").textContent = "Fetching all FMCSA data in parallel...";
+  document.getElementById("loadingStage").textContent = "Fetching carrier data...";
 
-  const [mainData, basicsData, cargoData, opsData, docketData, authorityData, oosData, insData] = await Promise.all([
+  const [mainData, basicsData, cargoData, opsData, docketData, authorityData, oosData, carrierData] = await Promise.all([
     fmcsa(`/${dot}`),
     fmcsa(`/${dot}/basics`),
     fmcsa(`/${dot}/cargo-carried`),
@@ -284,7 +288,7 @@ async function loadSnapshot(dot, name) {
     fmcsa(`/${dot}/docket-numbers`),
     fmcsa(`/${dot}/authority`),
     fmcsa(`/${dot}/oos`),
-    socrata(SOCRATA_INS, { dot_number: dot, '$limit': 20 })
+    getCarrierData(dot)
   ]);
 
   if (!mainData || !mainData.content) {
@@ -295,7 +299,22 @@ async function loadSnapshot(dot, name) {
   }
 
   const c          = mainData.content.carrier;
-  let corpInfo      = null;
+  let ownerInfo    = null;
+  let corpInfo     = null;
+  
+  // Extract owner info from Socrata carrier data (priority)
+  if (carrierData) {
+    ownerInfo = {
+      ownerName: carrierData.company_officer_1 || null,
+      phone: carrierData.phone || null,
+      email: carrierData.email_address || null,
+      powerUnits: parseInt(carrierData.power_units) || 0,
+      ownTrailers: parseInt(carrierData.owntrail) || 0,
+      totalDrivers: parseInt(carrierData.total_drivers) || 0
+    };
+  }
+
+  // Fallback to OpenCorporates if needed
   try {
     const companyCandidate = await openCorporatesSearch(name || c.legalName || c.dbaName, c.phyState);
     const corpData = companyCandidate ? await openCorporatesCompany(companyCandidate) : null;
@@ -305,21 +324,18 @@ async function loadSnapshot(dot, name) {
       jurisdiction: corpData?.jurisdiction_code || companyCandidate?.jurisdiction_code,
       status: corpData?.current_status || corpData?.current_status_description,
       address: corpData?.registered_address || corpData?.registered_office_address || '',
-      incorporationDate: corpData?.incorporation_date,
-      officerName: officer?.name,
-      officerEmail: officer?.email || corpData?.email || null,
-      officerRole: officer?.position
+      incorporationDate: corpData?.incorporation_date
     };
   } catch (err) {
     corpInfo = null;
   }
+  
   const basics     = basicsData?.content?.basics || [];
   const cargo      = cargoData?.content?.cargoCarried || [];
   const ops        = opsData?.content?.operationClassification || [];
   const dockets    = docketData?.content?.docketNumbers || [];
   const authority  = authorityData?.content?.authority || [];
   const oos        = oosData?.content?.oos || [];
-  const insurance  = Array.isArray(insData) ? insData : [];
 
   // ── Alert banners ──────────────────────────────────────────
   const alerts = [];
@@ -359,23 +375,6 @@ async function loadSnapshot(dot, name) {
         <td>${a.applicationStatus==='P'?'<span class="badge badge-orange">Pending Revocation</span>':fmt(a.applicationStatus)}</td>
       </tr>`).join('')
     : '<tr><td colspan="4" style="color:var(--muted);text-align:center;padding:16px;">No authority records</td></tr>';
-
-  const insRows = insurance.length > 0
-    ? insurance.map(i => {
-        const isCancelled = i.ins_cancellation_date && new Date(i.ins_cancellation_date) < new Date();
-        const isPending   = i.ins_cancellation_date && new Date(i.ins_cancellation_date) > new Date();
-        return `<tr>
-          <td>${fmt(i.ins_type)}</td>
-          <td>${fmt(i.ins_ins_code)}</td>
-          <td>$${parseInt(i.coverage_from||0).toLocaleString()}</td>
-          <td>${dateStr(i.ins_effective_dt)}</td>
-          <td>${isPending
-            ? `<span class="badge badge-red">Cancels ${dateStr(i.ins_cancellation_date)}</span>`
-            : isCancelled
-              ? `<span class="badge badge-gray">Cancelled ${dateStr(i.ins_cancellation_date)}</span>`
-              : '<span class="badge badge-green">Active</span>'}</td>
-        </tr>`;}).join('')
-    : '<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:16px;">No insurance records found</td></tr>';
 
   const basicCards = basics.length > 0
     ? basics.map(b => {
@@ -435,18 +434,18 @@ async function loadSnapshot(dot, name) {
       <div class="grid-3">
         <div class="stat-box">
           <div class="stat-label">MC Owner Name</div>
-          <div class="stat-val sm">${fmt(corpInfo?.officerName || c.legalName,'—')}</div>
-          <div class="stat-sub">${fmt(corpInfo?.officerRole || 'Primary contact')}</div>
+          <div class="stat-val sm">${fmt(ownerInfo?.ownerName || c.legalName,'—')}</div>
+          <div class="stat-sub">Company principal officer</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Phone Number</div>
-          <div class="stat-val sm">${fmt(c.telephone,'—')}</div>
-          <div class="stat-sub">FMCSA registered phone</div>
+          <div class="stat-val sm">${fmt(ownerInfo?.phone || c.telephone,'—')}</div>
+          <div class="stat-sub">Primary contact phone</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Email Address</div>
-          <div class="stat-val sm" style="font-size:12px;word-break:break-all;">${fmt(corpInfo?.officerEmail,'—')}</div>
-          <div class="stat-sub">From registry if available</div>
+          <div class="stat-val sm" style="font-size:12px;word-break:break-all;">${fmt(ownerInfo?.email,'—')}</div>
+          <div class="stat-sub">Contact email address</div>
         </div>
       </div>
     </div>
@@ -475,18 +474,39 @@ async function loadSnapshot(dot, name) {
         </div>
         <div class="stat-box">
           <div class="stat-label">Power Units (Trucks)</div>
-          <div class="stat-val">${fmt(c.totalPowerUnits,'—')}</div>
-          <div class="stat-sub">Total vehicles</div>
+          <div class="stat-val">${fmt(ownerInfo?.powerUnits || c.totalPowerUnits,'—')}</div>
+          <div class="stat-sub">Total tractors/trucks</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Own Trailers</div>
+          <div class="stat-val">${fmt(ownerInfo?.ownTrailers,'—')}</div>
+          <div class="stat-sub">Owned trailers</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Total Drivers</div>
-          <div class="stat-val">${fmt(c.totalDrivers,'—')}</div>
-          <div class="stat-sub">Active drivers</div>
+          <div class="stat-val">${fmt(ownerInfo?.totalDrivers || c.totalDrivers,'—')}</div>
+          <div class="stat-sub">Active drivers on file</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Inspection Data</div>
+      <div class="grid-3">
+        <div class="stat-box">
+          <div class="stat-label">Driver Inspections</div>
+          <div class="stat-val">${fmt(c.driverInsp, 0)}</div>
+          <div class="stat-sub">Roadside driver checks</div>
         </div>
         <div class="stat-box">
-          <div class="stat-label">Total Inspections</div>
-          <div class="stat-val">${parseInt(c.driverInsp||0) + parseInt(c.vehicleInsp||0) + parseInt(c.hazmatInsp||0)}</div>
-          <div class="stat-sub">Driver + Vehicle + Hazmat</div>
+          <div class="stat-label">Vehicle Inspections</div>
+          <div class="stat-val">${fmt(c.vehicleInsp, 0)}</div>
+          <div class="stat-sub">Roadside vehicle checks</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Hazmat Inspections</div>
+          <div class="stat-val">${fmt(c.hazmatInsp, 0)}</div>
+          <div class="stat-sub">Hazmat material checks</div>
         </div>
       </div>
     </div>
@@ -533,31 +553,17 @@ async function loadSnapshot(dot, name) {
       <div class="grid-3" style="margin-bottom:14px;">
         <div class="stat-box">
           <div class="stat-label">BIPD Required</div>
-          <div class="stat-val sm">${c.bipdInsuranceRequired==='Y'?formatMoney(c.bipdRequiredAmount,'k'):'No'}</div>
+          <div class="stat-val sm">${c.bipdInsuranceRequired==='Y'?'Yes':'No'}</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">BIPD On File</div>
           <div class="stat-val sm ${parseInt(c.bipdInsuranceOnFile||0)>0?'green':'red'}">${c.bipdInsuranceOnFile?formatMoney(c.bipdInsuranceOnFile,'k'):'—'}</div>
         </div>
         <div class="stat-box">
-          <div class="stat-label">Bond On File</div>
-          <div class="stat-val sm">${c.bondInsuranceOnFile?formatMoney(c.bondInsuranceOnFile):'—'}</div>
-        </div>
-      </div>
-      <div class="grid-2" style="gap:12px; margin-bottom:14px;">
-        <div class="stat-box" style="background:#f8fafc; border-color:var(--border);">
           <div class="stat-label">Insurance Match</div>
-          <div class="stat-val sm ${c.bipdInsuranceRequired==='Y' && parseInt(c.bipdInsuranceOnFile||0) >= parseInt(c.bipdRequiredAmount||0) ? 'green' : 'red'}">${c.bipdInsuranceRequired==='Y' ? (parseInt(c.bipdInsuranceOnFile||0) >= parseInt(c.bipdRequiredAmount||0) ? 'Meets required limits' : 'Below required limits') : 'No requirement'}</div>
-        </div>
-        <div class="stat-box" style="background:#f8fafc; border-color:var(--border);">
-          <div class="stat-label">Insurance Records</div>
-          <div class="stat-val sm ${insurance.length>0 ? 'green' : 'gray'}">${insurance.length>0 ? insurance.length + ' active entries' : 'No records found'}</div>
+          <div class="stat-val sm ${c.bipdInsuranceRequired==='Y' && parseInt(c.bipdInsuranceOnFile||0) >= parseInt(c.bipdRequiredAmount||0) ? 'green' : 'red'}">${c.bipdInsuranceRequired==='Y' ? (parseInt(c.bipdInsuranceOnFile||0) >= parseInt(c.bipdRequiredAmount||0) ? 'OK' : 'Below Limit') : 'N/A'}</div>
         </div>
       </div>
-      <table class="data-table">
-        <thead><tr><th>Form/Type</th><th>Insurer Code</th><th>Coverage</th><th>Effective Date</th><th>Status</th></tr></thead>
-        <tbody>${insRows}</tbody>
-      </table>
     </div>
 
     <div class="section">
