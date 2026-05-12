@@ -211,22 +211,30 @@ function normalizeString(value) {
 
 async function openCorporatesSearch(name, state) {
   if (!name) return null;
-  const params = new URLSearchParams({ q: name, per_page: 5 });
-  if (state) params.set('jurisdiction_code', `us_${state.toLowerCase()}`);
-  const url = `${OPENCORP_SEARCH}?${params}`;
-  const data = await fetch(url).then(r => r.ok ? r.json() : null).catch(() => null);
-  const companies = data?.results?.companies || [];
-  if (!companies.length) return null;
-  const normalizedName = normalizeString(name);
-  const exactMatch = companies.find(item => normalizeString(item.company.name) === normalizedName);
-  return exactMatch ? exactMatch.company : companies[0].company;
+  try {
+    const params = new URLSearchParams({ q: name, per_page: 5 });
+    if (state) params.set('jurisdiction_code', `us_${state.toLowerCase()}`);
+    const url = `${OPENCORP_SEARCH}?${params}`;
+    const data = await fetch(url).then(r => r.ok ? r.json() : null).catch(() => null);
+    const companies = data?.results?.companies || [];
+    if (!companies.length) return null;
+    const normalizedName = normalizeString(name);
+    const exactMatch = companies.find(item => normalizeString(item.company.name) === normalizedName);
+    return exactMatch ? exactMatch.company : companies[0].company;
+  } catch (err) {
+    return null;
+  }
 }
 
 async function openCorporatesCompany(company) {
   if (!company?.jurisdiction_code || !company?.company_number) return null;
-  const url = `${OPENCORP_BASE}/${company.jurisdiction_code}/${company.company_number}`;
-  const data = await fetch(url).then(r => r.ok ? r.json() : null).catch(() => null);
-  return data?.results?.company || null;
+  try {
+    const url = `${OPENCORP_BASE}/${company.jurisdiction_code}/${company.company_number}`;
+    const data = await fetch(url).then(r => r.ok ? r.json() : null).catch(() => null);
+    return data?.results?.company || null;
+  } catch (err) {
+    return null;
+  }
 }
 
 async function searchCarriers() {
@@ -314,21 +322,9 @@ async function loadSnapshot(dot, name) {
     };
   }
 
-  // Fallback to OpenCorporates if needed
-  try {
-    const companyCandidate = await openCorporatesSearch(name || c.legalName || c.dbaName, c.phyState);
-    const corpData = companyCandidate ? await openCorporatesCompany(companyCandidate) : null;
-    const officer = Array.isArray(corpData?.officers) ? corpData.officers[0] : null;
-    corpInfo = {
-      companyName: corpData?.name || companyCandidate?.name,
-      jurisdiction: corpData?.jurisdiction_code || companyCandidate?.jurisdiction_code,
-      status: corpData?.current_status || corpData?.current_status_description,
-      address: corpData?.registered_address || corpData?.registered_office_address || '',
-      incorporationDate: corpData?.incorporation_date
-    };
-  } catch (err) {
-    corpInfo = null;
-  }
+  // Note: OpenCorporates is skipped due to CORS restrictions in browser environment
+  // All essential data is already provided by SOCRATA and FMCSA endpoints
+  corpInfo = null;
   
   const basics     = basicsData?.content?.basics || [];
   const cargo      = cargoData?.content?.cargoCarried || [];
@@ -343,9 +339,6 @@ async function loadSnapshot(dot, name) {
     alerts.push({type:'danger', msg:'⚠️ This carrier is NOT authorized to operate.'});
   if (c.commonAuthorityStatus === 'I')
     alerts.push({type:'danger', msg:'⚠️ Common authority is Inactive.'});
-  const pendingCancel = insurance.filter(i => i.ins_cancellation_date && new Date(i.ins_cancellation_date) > new Date());
-  if (pendingCancel.length > 0)
-    alerts.push({type:'danger', msg:`⚠️ Pending insurance cancellation on ${dateStr(pendingCancel[0].ins_cancellation_date)}!`});
   const pendingRevoke = authority.filter(a => a.applicationStatus === 'P');
   if (pendingRevoke.length > 0)
     alerts.push({type:'warning', msg:'⚠️ This carrier has a pending authority revocation.'});
