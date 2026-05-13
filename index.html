@@ -121,10 +121,73 @@
   </div>
 
   <div class="card">
-    <div class="search-row">
-      <input type="text" id="searchInput" placeholder="e.g. 1677170 or MID VALLEY TRANSPORT" onkeydown="if(event.key==='Enter') searchCarriers()">
-      <button class="btn-search" onclick="searchCarriers()">Search</button>
+    <div style="margin-bottom: 16px; display: flex; gap: 8px;">
+      <button class="btn-select" onclick="toggleSearchMode('basic')" id="basicSearchBtn" style="background: var(--navy); color: white; padding: 8px 16px;">Basic Search</button>
+      <button class="btn-select" onclick="toggleSearchMode('advanced')" id="advancedSearchBtn" style="background: var(--border); color: var(--text); padding: 8px 16px;">Advanced Search</button>
     </div>
+
+    <!-- BASIC SEARCH -->
+    <div id="basicSearchPanel">
+      <div class="search-row">
+        <input type="text" id="searchInput" placeholder="e.g. 1677170 or MID VALLEY TRANSPORT" onkeydown="if(event.key==='Enter') searchCarriers()">
+        <button class="btn-search" onclick="searchCarriers()">Search</button>
+      </div>
+    </div>
+
+    <!-- ADVANCED SEARCH -->
+    <div id="advancedSearchPanel" style="display:none;">
+      <div class="grid-2" style="margin-bottom:16px;">
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">Company Name / DOT#</label>
+          <input type="text" id="advCompanyName" placeholder="Optional" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:6px;font-family:'IBM Plex Sans',sans-serif;">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">Company Status</label>
+          <select id="advStatus" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:6px;font-family:'IBM Plex Sans',sans-serif;">
+            <option value="">Any Status</option>
+            <option value="A">Active Only</option>
+            <option value="I">Inactive</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grid-2" style="margin-bottom:16px;">
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">State</label>
+          <input type="text" id="advState" placeholder="e.g. CA, TX, NY" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:6px;font-family:'IBM Plex Sans',sans-serif;">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">City</label>
+          <input type="text" id="advCity" placeholder="Optional" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:6px;font-family:'IBM Plex Sans',sans-serif;">
+        </div>
+      </div>
+
+      <div class="grid-3" style="margin-bottom:16px;">
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">Min Power Units</label>
+          <input type="number" id="advMinUnits" placeholder="0" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:6px;font-family:'IBM Plex Sans',sans-serif;">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">Max Power Units</label>
+          <input type="number" id="advMaxUnits" placeholder="Unlimited" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:6px;font-family:'IBM Plex Sans',sans-serif;">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">Operating Authority</label>
+          <select id="advAuthority" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:6px;font-family:'IBM Plex Sans',sans-serif;">
+            <option value="">Any Authority</option>
+            <option value="COMMON">Common Carrier</option>
+            <option value="CONTRACT">Contract</option>
+            <option value="BROKER">Broker</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <button class="btn-search" onclick="advancedSearch()" style="flex:1;padding:12px;">Search</button>
+        <button class="btn-select" onclick="clearAdvancedFilters()" style="padding:12px;">Clear Filters</button>
+      </div>
+    </div>
+
     <div class="loading" id="loadingMsg">
       <div class="spinner"></div>
       <span id="loadingText">Searching FMCSA databases...</span>
@@ -132,9 +195,19 @@
   </div>
 
   <div class="card" id="resultsCard" style="display:none;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div>
+        <h3 style="margin:0;font-size:16px;font-weight:700;color:var(--navy);">Search Results</h3>
+        <p id="resultCount" style="margin:4px 0 0 0;font-size:13px;color:var(--muted);">Loading...</p>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-select" onclick="exportToCSV()" style="background:var(--gold);padding:10px 16px;">📥 Export CSV</button>
+        <button class="btn-select" onclick="resetSearch()" style="background:var(--border);color:var(--text);padding:10px 16px;">New Search</button>
+      </div>
+    </div>
     <table>
       <thead><tr>
-        <th>Legal Name</th><th>DOT Number</th><th>MC/Docket</th><th>Status</th><th>Location</th><th>Action</th>
+        <th>Legal Name</th><th>DOT Number</th><th>MC/Docket</th><th>Status</th><th>Location</th><th>Units</th><th>Action</th>
       </tr></thead>
       <tbody id="tableBody"></tbody>
     </table>
@@ -159,6 +232,10 @@ const FMCSA_KEY       = "765f2002350d7989b1fef32b3522639c55fc27a8";
 const FMCSA_BASE      = "https://mobile.fmcsa.dot.gov/qc/services/carriers";
 const SOCRATA_CARRIER = "https://data.transportation.gov/resource/az4n-8mr2.json";
 
+// Store results for CSV export
+let allCarrierResults = [];
+let detailedResultsCache = {};
+
 function fmcsa(path) {
   return fetch(`${FMCSA_BASE}${path}?webKey=${FMCSA_KEY}`)
     .then(r => r.ok ? r.json() : null).catch(() => null);
@@ -171,6 +248,131 @@ function getCarrierData(dotNumber) {
   return socrata(SOCRATA_CARRIER, { dot_number: dotNumber, '$limit': 1 })
     .then(data => Array.isArray(data) && data.length > 0 ? data[0] : null);
 }
+
+function toggleSearchMode(mode) {
+  const basicPanel = document.getElementById("basicSearchPanel");
+  const advPanel = document.getElementById("advancedSearchPanel");
+  const basicBtn = document.getElementById("basicSearchBtn");
+  const advBtn = document.getElementById("advancedSearchBtn");
+  
+  if (mode === 'basic') {
+    basicPanel.style.display = 'block';
+    advPanel.style.display = 'none';
+    basicBtn.style.background = 'var(--navy)';
+    basicBtn.style.color = 'white';
+    advBtn.style.background = 'var(--border)';
+    advBtn.style.color = 'var(--text)';
+  } else {
+    basicPanel.style.display = 'none';
+    advPanel.style.display = 'block';
+    basicBtn.style.background = 'var(--border)';
+    basicBtn.style.color = 'var(--text)';
+    advBtn.style.background = 'var(--navy)';
+    advBtn.style.color = 'white';
+  }
+}
+
+function clearAdvancedFilters() {
+  document.getElementById("advCompanyName").value = '';
+  document.getElementById("advStatus").value = '';
+  document.getElementById("advState").value = '';
+  document.getElementById("advCity").value = '';
+  document.getElementById("advMinUnits").value = '';
+  document.getElementById("advMaxUnits").value = '';
+  document.getElementById("advAuthority").value = '';
+}
+
+function resetSearch() {
+  document.getElementById("searchInput").value = '';
+  clearAdvancedFilters();
+  document.getElementById("resultsCard").style.display = 'none';
+  document.getElementById("snapshotSection").style.display = 'none';
+  toggleSearchMode('basic');
+  allCarrierResults = [];
+}
+
+async function advancedSearch() {
+  const name = document.getElementById("advCompanyName").value.trim();
+  const status = document.getElementById("advStatus").value;
+  const state = document.getElementById("advState").value.trim().toUpperCase();
+  const city = document.getElementById("advCity").value.trim();
+  const minUnits = parseInt(document.getElementById("advMinUnits").value) || 0;
+  const maxUnits = parseInt(document.getElementById("advMaxUnits").value) || Infinity;
+  const authority = document.getElementById("advAuthority").value;
+
+  if (!name && !state && !city) {
+    alert("Please enter at least one search criteria");
+    return;
+  }
+
+  document.getElementById("resultsCard").style.display = "none";
+  document.getElementById("snapshotSection").style.display = "none";
+  setLoading(true, "Searching with advanced filters...");
+
+  try {
+    // Build search query from filters
+    let searchQuery = '';
+    if (name) searchQuery = name;
+    else if (state) searchQuery = `companies in ${state}`;
+    if (city) searchQuery += ` ${city}`;
+
+    const r = await fetch(`${N8N_SEARCH}?q=${encodeURIComponent(searchQuery)}`);
+    if (!r.ok) throw new Error();
+    let data = await r.json();
+    
+    if (!data || data.length === 0) {
+      setLoading(false);
+      alert("No carriers found matching your filters.");
+      return;
+    }
+
+    // Apply local filtering based on advanced criteria
+    data = data.filter(c => {
+      if (status && c.status_code !== status) return false;
+      if (state && (c.phy_state || '').toUpperCase() !== state) return false;
+      if (city && (c.phy_city || '').toLowerCase() !== city.toLowerCase()) return false;
+      const units = parseInt(c.powerUnits || c.total_power_units || 0);
+      if (units < minUnits || units > maxUnits) return false;
+      return true;
+    });
+
+    setLoading(false);
+
+    if (data.length === 0) {
+      alert("No carriers match your filter criteria.");
+      return;
+    }
+
+    allCarrierResults = data;
+    displayResults(data);
+    document.getElementById("resultsCard").style.display = "block";
+  } catch(e) {
+    setLoading(false);
+    alert("Error searching. Please try again.");
+  }
+}
+
+function displayResults(data) {
+  const tbody = document.getElementById("tableBody");
+  tbody.innerHTML = "";
+  document.getElementById("resultCount").textContent = `${data.length} carrier${data.length !== 1 ? 's' : ''} found`;
+  
+  data.forEach(c => {
+    const active = c.status_code === 'A';
+    const units = c.powerUnits || c.total_power_units || '—';
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><strong>${fmt(c.legal_name)}</strong></td>
+      <td style="font-family:'IBM Plex Mono',monospace;font-size:13px;">${fmt(c.dot_number)}</td>
+      <td style="font-family:'IBM Plex Mono',monospace;font-size:13px;">${fmt(c.docket1)}</td>
+      <td><span class="badge ${active?'badge-green':'badge-red'}">${active?'Active':'Inactive'}</span></td>
+      <td>${[c.phy_city,c.phy_state].filter(Boolean).join(', ')||'—'}</td>
+      <td>${units}</td>
+      <td><button class="btn-select" onclick="loadSnapshot('${c.dot_number}','${(c.legal_name||'').replace(/'/g,"\\'")}')">Select</button></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
 function parseSocrataDate(value) {
   if (!value) return null;
   const cleaned = value.toString().replace(/\D/g, '');
@@ -232,20 +434,9 @@ async function searchCarriers() {
     const data = await r.json();
     setLoading(false);
     if (!data || data.length === 0) return alert("No carriers found.");
-    const tbody = document.getElementById("tableBody");
-    tbody.innerHTML = "";
-    data.forEach(c => {
-      const active = c.status_code === 'A';
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td><strong>${fmt(c.legal_name)}</strong></td>
-        <td style="font-family:'IBM Plex Mono',monospace;font-size:13px;">${fmt(c.dot_number)}</td>
-        <td style="font-family:'IBM Plex Mono',monospace;font-size:13px;">${fmt(c.docket1)}</td>
-        <td><span class="badge ${active?'badge-green':'badge-red'}">${active?'Active':'Inactive'}</span></td>
-        <td>${[c.phy_city,c.phy_state].filter(Boolean).join(', ')||'—'}</td>
-        <td><button class="btn-select" onclick="loadSnapshot('${c.dot_number}','${(c.legal_name||'').replace(/'/g,"\\'")}')">Select</button></td>`;
-      tbody.appendChild(tr);
-    });
+    
+    allCarrierResults = data;
+    displayResults(data);
     document.getElementById("resultsCard").style.display = "block";
   } catch(e) {
     setLoading(false);
@@ -261,6 +452,52 @@ function setLoading(show, text) {
 function goBack() {
   document.getElementById("snapshotSection").style.display = "none";
   document.getElementById("resultsCard").style.display = "block";
+}
+
+function exportToCSV() {
+  if (allCarrierResults.length === 0) {
+    alert("No results to export. Please perform a search first.");
+    return;
+  }
+
+  const headers = [
+    'Legal Name',
+    'DOT Number',
+    'MC/Docket',
+    'Status',
+    'City',
+    'State',
+    'Power Units',
+    'Contact Phone',
+    'MCS-150 Date'
+  ];
+
+  const rows = allCarrierResults.map(c => [
+    fmt(c.legal_name),
+    fmt(c.dot_number),
+    fmt(c.docket1),
+    c.status_code === 'A' ? 'Active' : 'Inactive',
+    fmt(c.phy_city),
+    fmt(c.phy_state),
+    fmt(c.powerUnits || c.total_power_units),
+    fmt(c.telephone),
+    fmt(c.mcs150_date)
+  ]);
+
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+  ].join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  link.setAttribute('href', url);
+  link.setAttribute('download', `carrier-search-${new Date().toISOString().split('T')[0]}.csv`);
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 async function loadSnapshot(dot, name) {
