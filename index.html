@@ -149,6 +149,24 @@
   .tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
   .tag { background: #e0eaf5; color: var(--navy); border-radius: 6px; padding: 4px 10px; font-size: 12px; font-weight: 500; }
 
+  /* ── Advanced Search Accordion ── */
+  .adv-section { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; overflow: hidden; }
+  .adv-section-header { padding: 11px 15px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; background: #f8fafc; font-size: 13px; font-weight: 600; color: var(--navy); user-select: none; transition: background 0.15s; }
+  .adv-section-header:hover { background: #eef2f7; }
+  .adv-section-body { padding: 14px; display: none; border-top: 1px solid var(--border); }
+  .adv-section-body.open { display: block; }
+  .adv-chevron { font-size: 10px; color: var(--muted); transition: transform 0.2s; display: inline-block; }
+  .adv-section.open .adv-chevron { transform: rotate(90deg); }
+  .adv-label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .adv-select { width: 100%; padding: 10px 12px; border: 2px solid var(--border); border-radius: 8px; font-family: 'IBM Plex Sans', sans-serif; font-size: 14px; background: white; color: var(--text); outline: none; transition: border-color 0.2s; }
+  .adv-select:focus { border-color: var(--navy); }
+  .adv-date { width: 100%; padding: 10px 12px; border: 2px solid var(--border); border-radius: 8px; font-family: 'IBM Plex Sans', sans-serif; font-size: 14px; outline: none; transition: border-color 0.2s; color: var(--text); }
+  .adv-date:focus { border-color: var(--navy); }
+  .preset-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .preset-chip { background: #e0eaf5; color: var(--navy); border: none; border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 500; cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; transition: all 0.15s; }
+  .preset-chip:hover { background: var(--navy); color: white; }
+  .adv-badge-new { background: var(--gold); color: var(--navy-dark); font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px; margin-left: 6px; vertical-align: middle; }
+
   /* ── Data gating / protection ── */
   .gated-wrap {
     position: relative;
@@ -351,52 +369,167 @@
 
     <!-- Advanced -->
     <div id="advancedSearchPanel" style="display:none;">
-      <div class="grid-2" style="margin-bottom:16px;">
-        <div>
-          <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">Company Name / DOT#</label>
-          <input type="text" id="advCompanyName" placeholder="Optional" style="width:100%;">
+
+      <!-- Docket # -->
+      <div class="adv-section" id="sec-docket">
+        <div class="adv-section-header" onclick="toggleAdv('body-docket','sec-docket')">
+          <span>Docket # <span style="font-weight:400;color:var(--muted);font-size:12px;">(MC / FF / MX)</span></span>
+          <span class="adv-chevron">▶</span>
         </div>
-        <div>
-          <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">Company Status</label>
-          <select id="advStatus" style="width:100%;padding:12px;border:2px solid var(--border);border-radius:8px;font-family:'IBM Plex Sans',sans-serif;font-size:14px;">
+        <div class="adv-section-body" id="body-docket">
+          <div style="display:flex;gap:8px;">
+            <select id="advDocketPrefix" class="adv-select" style="width:80px;">
+              <option value="">Any</option>
+              <option value="MC">MC</option>
+              <option value="FF">FF</option>
+              <option value="MX">MX</option>
+            </select>
+            <input type="text" id="advDocket" placeholder="e.g. 1332555" style="flex:1;">
+          </div>
+        </div>
+      </div>
+
+      <!-- DOT # -->
+      <div class="adv-section" id="sec-dot">
+        <div class="adv-section-header" onclick="toggleAdv('body-dot','sec-dot')">
+          <span>DOT #</span><span class="adv-chevron">▶</span>
+        </div>
+        <div class="adv-section-body" id="body-dot">
+          <input type="text" id="advDot" placeholder="e.g. 3752356" style="width:100%;">
+        </div>
+      </div>
+
+      <!-- Company Name -->
+      <div class="adv-section" id="sec-name">
+        <div class="adv-section-header" onclick="toggleAdv('body-name','sec-name')">
+          <span>Company Name</span><span class="adv-chevron">▶</span>
+        </div>
+        <div class="adv-section-body" id="body-name">
+          <input type="text" id="advName" placeholder="e.g. SUKH SANDHU EXPRESS" style="width:100%;">
+        </div>
+      </div>
+
+      <!-- Location -->
+      <div class="adv-section" id="sec-loc">
+        <div class="adv-section-header" onclick="toggleAdv('body-loc','sec-loc')">
+          <span>Location</span><span class="adv-chevron">▶</span>
+        </div>
+        <div class="adv-section-body" id="body-loc">
+          <div class="grid-3" style="gap:8px;">
+            <div>
+              <label class="adv-label">State</label>
+              <input type="text" id="advState" placeholder="e.g. CA" style="width:100%;">
+            </div>
+            <div>
+              <label class="adv-label">City</label>
+              <input type="text" id="advCity" placeholder="Optional" style="width:100%;">
+            </div>
+            <div>
+              <label class="adv-label">ZIP</label>
+              <input type="text" id="advZip" placeholder="Optional" style="width:100%;">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ★ Added Date — OPEN BY DEFAULT -->
+      <div class="adv-section open" id="sec-date">
+        <div class="adv-section-header" onclick="toggleAdv('body-date','sec-date')">
+          <span>Added Date <span class="adv-badge-new">KEY</span></span>
+          <span class="adv-chevron">▶</span>
+        </div>
+        <div class="adv-section-body open" id="body-date">
+          <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Filter by when the carrier was first registered with FMCSA.</p>
+          <div class="grid-2" style="gap:8px;margin-bottom:4px;">
+            <div>
+              <label class="adv-label">From</label>
+              <input type="date" id="advDateFrom" class="adv-date">
+            </div>
+            <div>
+              <label class="adv-label">To</label>
+              <input type="date" id="advDateTo" class="adv-date">
+            </div>
+          </div>
+          <div class="preset-chips">
+            <button class="preset-chip" onclick="setDatePreset('this_month')">This Month</button>
+            <button class="preset-chip" onclick="setDatePreset('last_month')">Last Month</button>
+            <button class="preset-chip" onclick="setDatePreset('last_30')">Last 30 Days</button>
+            <button class="preset-chip" onclick="setDatePreset('last_90')">Last 90 Days</button>
+            <button class="preset-chip" onclick="setDatePreset('this_year')">This Year</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- DOT Status -->
+      <div class="adv-section" id="sec-status">
+        <div class="adv-section-header" onclick="toggleAdv('body-status','sec-status')">
+          <span>DOT Status</span><span class="adv-chevron">▶</span>
+        </div>
+        <div class="adv-section-body" id="body-status">
+          <select id="advStatus" class="adv-select">
             <option value="">Any Status</option>
             <option value="A">Active Only</option>
-            <option value="I">Inactive</option>
+            <option value="I">Inactive Only</option>
           </select>
         </div>
       </div>
-      <div class="grid-2" style="margin-bottom:16px;">
-        <div>
-          <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">State</label>
-          <input type="text" id="advState" placeholder="e.g. CA, TX, NY" style="width:100%;">
+
+      <!-- Carrier Operations -->
+      <div class="adv-section" id="sec-ops">
+        <div class="adv-section-header" onclick="toggleAdv('body-ops','sec-ops')">
+          <span>Carrier Operations</span><span class="adv-chevron">▶</span>
         </div>
-        <div>
-          <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">City</label>
-          <input type="text" id="advCity" placeholder="Optional" style="width:100%;">
-        </div>
-      </div>
-      <div class="grid-3" style="margin-bottom:16px;">
-        <div>
-          <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">Min Power Units</label>
-          <input type="number" id="advMinUnits" placeholder="0" style="width:100%;">
-        </div>
-        <div>
-          <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">Max Power Units</label>
-          <input type="number" id="advMaxUnits" placeholder="Unlimited" style="width:100%;">
-        </div>
-        <div>
-          <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">Operating Authority</label>
-          <select id="advAuthority" style="width:100%;padding:12px;border:2px solid var(--border);border-radius:8px;font-family:'IBM Plex Sans',sans-serif;font-size:14px;">
-            <option value="">Any Authority</option>
-            <option value="COMMON">Common Carrier</option>
-            <option value="CONTRACT">Contract</option>
-            <option value="BROKER">Broker</option>
+        <div class="adv-section-body" id="body-ops">
+          <select id="advCarrierOp" class="adv-select">
+            <option value="">Any</option>
+            <option value="I">Interstate</option>
+            <option value="A">Intrastate Only (HM)</option>
+            <option value="H">Intrastate Only (Non-HM)</option>
           </select>
         </div>
       </div>
-      <div style="display:flex;gap:8px;">
+
+      <!-- Fleet Size -->
+      <div class="adv-section" id="sec-fleet">
+        <div class="adv-section-header" onclick="toggleAdv('body-fleet','sec-fleet')">
+          <span>Fleet Size</span><span class="adv-chevron">▶</span>
+        </div>
+        <div class="adv-section-body" id="body-fleet">
+          <div style="margin-bottom:12px;">
+            <label class="adv-label">Power Units (trucks)</label>
+            <div class="grid-2" style="gap:8px;">
+              <input type="number" id="advMinUnits" placeholder="Min" style="width:100%;">
+              <input type="number" id="advMaxUnits" placeholder="Max" style="width:100%;">
+            </div>
+          </div>
+          <div>
+            <label class="adv-label">Drivers</label>
+            <div class="grid-2" style="gap:8px;">
+              <input type="number" id="advMinDrivers" placeholder="Min" style="width:100%;">
+              <input type="number" id="advMaxDrivers" placeholder="Max" style="width:100%;">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Safety Rating -->
+      <div class="adv-section" id="sec-safety">
+        <div class="adv-section-header" onclick="toggleAdv('body-safety','sec-safety')">
+          <span>Safety Rating</span><span class="adv-chevron">▶</span>
+        </div>
+        <div class="adv-section-body" id="body-safety">
+          <select id="advSafetyRating" class="adv-select">
+            <option value="">Any Rating</option>
+            <option value="Satisfactory">Satisfactory</option>
+            <option value="Conditional">Conditional</option>
+            <option value="Unsatisfactory">Unsatisfactory</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:14px;">
         <button class="btn-search" onclick="advancedSearch()" style="flex:1;padding:12px;border-radius:8px;">Search</button>
-        <button class="btn-select" onclick="clearAdvancedFilters()" style="padding:12px;">Clear</button>
+        <button class="btn-select" onclick="clearAdvancedFilters()" style="padding:12px;">Clear All</button>
       </div>
     </div>
 
@@ -576,6 +709,33 @@ function gateSection(title, message) {
   </div>`;
 }
 
+// ── Advanced search accordion ─────────────────────────────────────────────────
+function toggleAdv(bodyId, sectionId) {
+  document.getElementById(bodyId).classList.toggle('open');
+  document.getElementById(sectionId).classList.toggle('open');
+}
+
+function setDatePreset(preset) {
+  const now  = new Date();
+  const iso  = d => d.toISOString().split('T')[0];
+  let from, to;
+  if (preset === 'this_month') {
+    from = new Date(now.getFullYear(), now.getMonth(), 1);
+    to   = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  } else if (preset === 'last_month') {
+    from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    to   = new Date(now.getFullYear(), now.getMonth(), 0);
+  } else if (preset === 'last_30') {
+    from = new Date(now - 30 * 86400000); to = now;
+  } else if (preset === 'last_90') {
+    from = new Date(now - 90 * 86400000); to = now;
+  } else if (preset === 'this_year') {
+    from = new Date(now.getFullYear(), 0, 1); to = now;
+  }
+  document.getElementById('advDateFrom').value = iso(from);
+  document.getElementById('advDateTo').value   = iso(to);
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 let allCarrierResults = [];
 
@@ -602,44 +762,70 @@ async function searchCarriers() {
 }
 
 async function advancedSearch() {
-  const name      = document.getElementById('advCompanyName').value.trim();
-  const status    = document.getElementById('advStatus').value;
-  const state     = document.getElementById('advState').value.trim().toUpperCase();
-  const city      = document.getElementById('advCity').value.trim();
-  const minUnits  = parseInt(document.getElementById('advMinUnits').value) || 0;
-  const maxUnits  = parseInt(document.getElementById('advMaxUnits').value) || Infinity;
+  const params = new URLSearchParams();
 
-  if (!name && !state && !city) { alert('Please enter at least one search criterion.'); return; }
+  const dot        = document.getElementById('advDot')?.value.trim();
+  const mc         = document.getElementById('advDocket')?.value.trim();
+  const name       = document.getElementById('advName')?.value.trim();
+  const state      = document.getElementById('advState')?.value.trim().toUpperCase();
+  const city       = document.getElementById('advCity')?.value.trim();
+  const zip        = document.getElementById('advZip')?.value.trim();
+  const status     = document.getElementById('advStatus')?.value;
+  const dateFrom   = document.getElementById('advDateFrom')?.value;
+  const dateTo     = document.getElementById('advDateTo')?.value;
+  const minUnits   = document.getElementById('advMinUnits')?.value;
+  const maxUnits   = document.getElementById('advMaxUnits')?.value;
+  const minDrivers = document.getElementById('advMinDrivers')?.value;
+  const maxDrivers = document.getElementById('advMaxDrivers')?.value;
+  const safetyRtng = document.getElementById('advSafetyRating')?.value;
+  const carrierOp  = document.getElementById('advCarrierOp')?.value;
 
-  document.getElementById('resultsCard').style.display    = 'none';
+  if (!dot && !mc && !name && !state && !city && !zip && !status &&
+      !dateFrom && !dateTo && !minUnits && !maxUnits &&
+      !minDrivers && !maxDrivers && !safetyRtng && !carrierOp) {
+    alert('Please enter at least one search criterion.');
+    return;
+  }
+
+  if (dot)        params.set('dot',        dot);
+  if (mc)         params.set('mc',         mc);
+  if (name)       params.set('name',       name);
+  if (state)      params.set('state',      state);
+  if (city)       params.set('city',       city);
+  if (zip)        params.set('zip',        zip);
+  if (status)     params.set('status',     status);
+  if (dateFrom)   params.set('date_from',  dateFrom);
+  if (dateTo)     params.set('date_to',    dateTo);
+  if (minUnits)   params.set('min_units',  minUnits);
+  if (maxUnits)   params.set('max_units',  maxUnits);
+  if (minDrivers) params.set('min_drivers',minDrivers);
+  if (maxDrivers) params.set('max_drivers',maxDrivers);
+  if (safetyRtng) params.set('safety_rating', safetyRtng);
+  if (carrierOp)  params.set('carrier_op', carrierOp);
+
+  document.getElementById('resultsCard').style.display     = 'none';
   document.getElementById('snapshotSection').style.display = 'none';
-  setLoading(true, 'Applying advanced filters...');
+  setLoading(true, 'Querying FMCSA database...');
 
   try {
-    const q = name || (city ? `${city} ${state}` : state);
-    const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
-    if (!r.ok) throw new Error();
-    let data = await r.json();
-
-    if (!data || data.length === 0) { setLoading(false); alert('No carriers found.'); return; }
-
-    data = data.filter(c => {
-      if (status && c.status_code !== status) return false;
-      if (state && (c.phy_state || '').toUpperCase() !== state) return false;
-      if (city && (c.phy_city || '').toLowerCase() !== city.toLowerCase()) return false;
-      const units = parseInt(c.powerUnits || c.total_power_units || 0);
-      if (units < minUnits || units > maxUnits) return false;
-      return true;
-    });
-
+    const r = await fetch(`/api/advanced-search?${params}`);
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.error || 'Search failed');
+    }
+    const data = await r.json();
     setLoading(false);
-    if (data.length === 0) { alert('No carriers match your filter criteria.'); return; }
+
+    if (!data || data.length === 0) {
+      alert('No carriers found. Try broadening your filters.');
+      return;
+    }
     allCarrierResults = data;
     displayResults(data);
     document.getElementById('resultsCard').style.display = 'block';
-  } catch {
+  } catch (e) {
     setLoading(false);
-    alert('Search failed. Please try again.');
+    alert('Search failed: ' + e.message);
   }
 }
 
@@ -650,17 +836,23 @@ function displayResults(data) {
     `${data.length} carrier${data.length !== 1 ? 's' : ''} found`;
 
   data.forEach(c => {
-    const active = c.status_code === 'A';
-    const units  = c.powerUnits || c.total_power_units || '—';
-    const tr     = document.createElement('tr');
+    const active  = c.status_code === 'A';
+    const units   = c.powerUnits || c.total_power_units || c.power_units || '—';
+    // Docket: combine prefix+number if available (Socrata direct), else use docket1 (n8n)
+    const docket  = c.docket1prefix
+      ? `${c.docket1prefix}${c.docket1 || ''}`
+      : fmt(c.docket1);
+    // Added date — shown when result is from advanced search date filter
+    const addDate = c.add_date ? ` <span style="font-size:11px;color:var(--muted);">(${dateStr(parseSocrataDate(c.add_date))})</span>` : '';
+    const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td><strong>${fmt(c.legal_name)}</strong></td>
+      <td><strong>${fmt(c.legal_name)}</strong>${addDate}</td>
       <td style="font-family:'IBM Plex Mono',monospace;font-size:13px;">${fmt(c.dot_number)}</td>
-      <td style="font-family:'IBM Plex Mono',monospace;font-size:13px;">${fmt(c.docket1)}</td>
+      <td style="font-family:'IBM Plex Mono',monospace;font-size:13px;">${docket}</td>
       <td><span class="badge ${active ? 'badge-green' : 'badge-red'}">${active ? 'Active' : 'Inactive'}</span></td>
       <td>${[c.phy_city, c.phy_state].filter(Boolean).join(', ') || '—'}</td>
       <td>${units}</td>
-      <td><button class="btn-select" onclick="loadSnapshot('${c.dot_number}','${(c.legal_name||'').replace(/'/g,"\\'")}')">View</button></td>`;
+      <td><button class="btn-select" onclick="loadSnapshot('${c.dot_number}')">View</button></td>`;
     tbody.appendChild(tr);
   });
 }
@@ -1069,8 +1261,10 @@ function toggleSearchMode(mode) {
   document.getElementById('advancedSearchBtn').style.color      = isBasic ? 'var(--text)'    : 'white';
 }
 function clearAdvancedFilters() {
-  ['advCompanyName','advStatus','advState','advCity','advMinUnits','advMaxUnits','advAuthority']
-    .forEach(id => { document.getElementById(id).value = ''; });
+  ['advDot','advDocket','advDocketPrefix','advName','advState','advCity','advZip',
+   'advStatus','advDateFrom','advDateTo','advMinUnits','advMaxUnits',
+   'advMinDrivers','advMaxDrivers','advSafetyRating','advCarrierOp']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
 }
 function resetSearch() {
   document.getElementById('searchInput').value = '';
