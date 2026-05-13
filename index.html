@@ -157,9 +157,7 @@
 const N8N_SEARCH      = "https://n8n.turbofreightllc.com/webhook/carrier-search";
 const FMCSA_KEY       = "765f2002350d7989b1fef32b3522639c55fc27a8";
 const FMCSA_BASE      = "https://mobile.fmcsa.dot.gov/qc/services/carriers";
-const SOCRATA_CARRIER = "https://data.transportation.gov/resource/az4n-8mr2.json"; // MCS-150 Carrier data
-const OPENCORP_SEARCH = "https://api.opencorporates.com/v0.4/companies/search";
-const OPENCORP_BASE   = "https://api.opencorporates.com/v0.4/companies";
+const SOCRATA_CARRIER = "https://data.transportation.gov/resource/az4n-8mr2.json";
 
 function fmcsa(path) {
   return fetch(`${FMCSA_BASE}${path}?webKey=${FMCSA_KEY}`)
@@ -172,6 +170,31 @@ function socrata(url, params) {
 function getCarrierData(dotNumber) {
   return socrata(SOCRATA_CARRIER, { dot_number: dotNumber, '$limit': 1 })
     .then(data => Array.isArray(data) && data.length > 0 ? data[0] : null);
+}
+function parseSocrataDate(value) {
+  if (!value) return null;
+  const cleaned = value.toString().replace(/\D/g, '');
+  if (cleaned.length < 8) return null;
+  const year = cleaned.slice(0, 4);
+  const month = cleaned.slice(4, 6);
+  const day = cleaned.slice(6, 8);
+  const date = new Date(`${year}-${month}-${day}T00:00:00Z`);
+  return isNaN(date.getTime()) ? null : date;
+}
+function humanDuration(fromDate) {
+  if (!fromDate) return '—';
+  const start = typeof fromDate === 'string' ? new Date(fromDate) : fromDate;
+  if (isNaN(start.getTime())) return '—';
+  const now = new Date();
+  const ms = now - start;
+  if (ms < 0) return '0 days';
+  const days = Math.floor(ms / 86400000);
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'}`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} month${months === 1 ? '' : 's'}`;
+  const years = Math.floor(months / 12);
+  const remMonths = months % 12;
+  return remMonths ? `${years}y ${remMonths}m` : `${years}y`;
 }
 function fmt(v, fallback) { return (v !== null && v !== undefined && v !== '') ? v : (fallback !== undefined ? fallback : '—'); }
 function formatMoney(value, suffix = '') {
@@ -193,48 +216,8 @@ function dateStr(s) {
   try { return new Date(s).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); } catch(e) { return s; }
 }
 
-function calculateDuration(grantedDate) {
-  if (!grantedDate) return '—';
-  try {
-    const granted = new Date(grantedDate);
-    const now = new Date();
-    const years = now.getFullYear() - granted.getFullYear();
-    const months = now.getMonth() - granted.getMonth();
-    if (months < 0) return `${years - 1}y ${12 + months}m`;
-    return `${years}y ${months}m`;
-  } catch(e) { return '—'; }
-}
-
 function normalizeString(value) {
   return (value || '').toString().trim().replace(/\s+/g, ' ').replace(/[^a-z0-9 ]/gi, '').toLowerCase();
-}
-
-async function openCorporatesSearch(name, state) {
-  if (!name) return null;
-  try {
-    const params = new URLSearchParams({ q: name, per_page: 5 });
-    if (state) params.set('jurisdiction_code', `us_${state.toLowerCase()}`);
-    const url = `${OPENCORP_SEARCH}?${params}`;
-    const data = await fetch(url).then(r => r.ok ? r.json() : null).catch(() => null);
-    const companies = data?.results?.companies || [];
-    if (!companies.length) return null;
-    const normalizedName = normalizeString(name);
-    const exactMatch = companies.find(item => normalizeString(item.company.name) === normalizedName);
-    return exactMatch ? exactMatch.company : companies[0].company;
-  } catch (err) {
-    return null;
-  }
-}
-
-async function openCorporatesCompany(company) {
-  if (!company?.jurisdiction_code || !company?.company_number) return null;
-  try {
-    const url = `${OPENCORP_BASE}/${company.jurisdiction_code}/${company.company_number}`;
-    const data = await fetch(url).then(r => r.ok ? r.json() : null).catch(() => null);
-    return data?.results?.company || null;
-  } catch (err) {
-    return null;
-  }
 }
 
 async function searchCarriers() {
@@ -286,7 +269,7 @@ async function loadSnapshot(dot, name) {
   document.getElementById("snapshotLoading").style.display = "block";
   document.getElementById("snapshotContent").style.display = "none";
   document.getElementById("alertBanners").innerHTML = "";
-  document.getElementById("loadingStage").textContent = "Fetching carrier data...";
+  document.getElementById("loadingStage").textContent = "Fetching all FMCSA data in parallel...";
 
   const [mainData, basicsData, cargoData, opsData, docketData, authorityData, oosData, carrierData] = await Promise.all([
     fmcsa(`/${dot}`),
@@ -308,7 +291,6 @@ async function loadSnapshot(dot, name) {
 
   const c          = mainData.content.carrier;
   let ownerInfo    = null;
-  let corpInfo     = null;
   
   // Extract owner info from Socrata carrier data (priority)
   if (carrierData) {
@@ -322,16 +304,13 @@ async function loadSnapshot(dot, name) {
     };
   }
 
-  // Note: OpenCorporates is skipped due to CORS restrictions in browser environment
-  // All essential data is already provided by SOCRATA and FMCSA endpoints
-  corpInfo = null;
-  
   const basics     = basicsData?.content?.basics || [];
   const cargo      = cargoData?.content?.cargoCarried || [];
   const ops        = opsData?.content?.operationClassification || [];
   const dockets    = docketData?.content?.docketNumbers || [];
   const authority  = authorityData?.content?.authority || [];
   const oos        = oosData?.content?.oos || [];
+  const insurance  = [];
 
   // ── Alert banners ──────────────────────────────────────────
   const alerts = [];
@@ -347,7 +326,16 @@ async function loadSnapshot(dot, name) {
     `<div class="alert-banner alert-${a.type}">${a.msg}</div>`).join('');
 
   // ── Build sections ─────────────────────────────────────────
-  const docketStr = dockets.map(d=>`${d.prefix||''}${d.docketNumber}`).join(', ') || '—';
+  const mcNumber = carrierData && (carrierData.docket1prefix || carrierData.docket1)
+    ? `${carrierData.docket1prefix || ''}${carrierData.docket1 || ''}`
+    : dockets.map(d=>`${d.prefix||''}${d.docketNumber}`).join(', ');
+  const docketStr = mcNumber || '—';
+  
+  // Parse MCS-150 date if available
+  const mcs150Date = carrierData?.mcs150_date ? parseSocrataDate(carrierData.mcs150_date) : null;
+  const mcs150Age = mcs150Date ? humanDuration(mcs150Date) : '—';
+  const mcs150Status = mcs150Date ? (new Date() - mcs150Date < 730 * 86400000 ? 'Current' : 'Outdated') : 'Unknown';
+  const mcs150FormattedDate = mcs150Date ? dateStr(mcs150Date) : '—';
   const docketTags = dockets.length > 0
     ? dockets.map(d=>`<span class="tag">${d.prefix||''}${d.docketNumber}</span>`).join('')
     : '<span style="color:var(--muted);font-size:13px;">No docket numbers on file</span>';
@@ -369,6 +357,23 @@ async function loadSnapshot(dot, name) {
       </tr>`).join('')
     : '<tr><td colspan="4" style="color:var(--muted);text-align:center;padding:16px;">No authority records</td></tr>';
 
+  const insRows = insurance.length > 0
+    ? insurance.map(i => {
+        const isCancelled = i.ins_cancellation_date && new Date(i.ins_cancellation_date) < new Date();
+        const isPending   = i.ins_cancellation_date && new Date(i.ins_cancellation_date) > new Date();
+        return `<tr>
+          <td>${fmt(i.ins_type)}</td>
+          <td>${fmt(i.ins_ins_code)}</td>
+          <td>$${parseInt(i.coverage_from||0).toLocaleString()}</td>
+          <td>${dateStr(i.ins_effective_dt)}</td>
+          <td>${isPending
+            ? `<span class="badge badge-red">Cancels ${dateStr(i.ins_cancellation_date)}</span>`
+            : isCancelled
+              ? `<span class="badge badge-gray">Cancelled ${dateStr(i.ins_cancellation_date)}</span>`
+              : '<span class="badge badge-green">Active</span>'}</td>
+        </tr>`;}).join('')
+    : '<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:16px;">No insurance records found</td></tr>';
+
   const basicCards = basics.length > 0
     ? basics.map(b => {
         const isAlert = b.alertIndicator === 'Y';
@@ -383,10 +388,6 @@ async function loadSnapshot(dot, name) {
   const driverAvg  = parseFloat(c.driverOosRateNationalAverage)  || 5.51;
   const vehicleAvg = parseFloat(c.vehicleOosRateNationalAverage) || 20.72;
   const hazmatAvg  = parseFloat(c.hazmatOosRateNationalAverage)  || 4.5;
-
-  // Calculate common active duration
-  const commonAuthority = authority.find(a => a.operatingAuthorityType === 'Common' && a.authorityStatus === 'A');
-  const commonActiveDuration = commonAuthority ? calculateDuration(commonAuthority.grantedDate) : '—';
 
   function oosBox(label, rate, avg, insp) {
     const color = oosColor(rate, avg);
@@ -411,7 +412,7 @@ async function loadSnapshot(dot, name) {
             ?'<span class="badge badge-green">✓ Authorized to Operate</span>'
             :'<span class="badge badge-red">✗ Not Authorized to Operate</span>'}
           &nbsp;
-          <span class="badge ${c.mcs150Outdated==='Y'?'badge-red':'badge-gray'}">MCS-150 ${c.mcs150Outdated==='Y'?'Outdated':'Current'}</span>
+          <span class="badge ${mcs150Status==='Outdated'?'badge-red':'badge-gray'}">MCS-150 ${mcs150Status} ${mcs150Age !== '—' ? `(${mcs150Age} old)` : ''}</span>
         </div>
       </div>
       <div style="text-align:right;">
@@ -426,33 +427,45 @@ async function loadSnapshot(dot, name) {
       <div class="section-title">Contact Information</div>
       <div class="grid-3">
         <div class="stat-box">
-          <div class="stat-label">MC Owner Name</div>
-          <div class="stat-val sm">${fmt(ownerInfo?.ownerName || c.legalName,'—')}</div>
-          <div class="stat-sub">Company principal officer</div>
+          <div class="stat-label">Owner Name</div>
+          <div class="stat-val sm">${fmt(ownerInfo?.ownerName || c.telephone, '—')}</div>
+          <div class="stat-sub">Primary contact from MCS-150</div>
         </div>
         <div class="stat-box">
-          <div class="stat-label">Phone Number</div>
-          <div class="stat-val sm">${fmt(ownerInfo?.phone || c.telephone,'—')}</div>
-          <div class="stat-sub">Primary contact phone</div>
+          <div class="stat-label">Phone</div>
+          <div class="stat-val sm">${fmt(ownerInfo?.phone || c.telephone, '—')}</div>
+          <div class="stat-sub">Main business phone</div>
         </div>
         <div class="stat-box">
-          <div class="stat-label">Email Address</div>
-          <div class="stat-val sm" style="font-size:12px;word-break:break-all;">${fmt(ownerInfo?.email,'—')}</div>
-          <div class="stat-sub">Contact email address</div>
+          <div class="stat-label">Email</div>
+          <div class="stat-val sm" style="font-size:13px;">${fmt(ownerInfo?.email, '—')}</div>
+          <div class="stat-sub">Primary email address</div>
         </div>
       </div>
     </div>
 
     <div class="section">
       <div class="section-title">Business Information</div>
-      <div class="grid-2" style="margin-bottom:14px;">
+      <div class="grid-3" style="margin-bottom:14px;">
         <div class="stat-box">
           <div class="stat-label">Company Status</div>
-          <div class="stat-val sm ${corpInfo?.status && corpInfo.status.toLowerCase().includes('active') ? 'green' : 'red'}">${fmt(corpInfo?.status,'Unknown')}</div>
+          <div class="stat-val sm green">${c.allowedToOperate==='Y'?'Authorized to Operate':'Not Authorized'}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">MCS-150 Form Date</div>
+          <div class="stat-val sm">${mcs150FormattedDate}</div>
+          <div class="stat-sub">${mcs150Age !== '—' ? `Last updated ${mcs150Age} ago` : '—'}</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Registered Address</div>
-          <div class="stat-val sm" style="font-size:12px;line-height:1.4;">${fmt(corpInfo?.address,'—')}</div>
+          <div class="stat-val sm" style="font-size:13px;line-height:1.4;">
+            ${carrierData 
+              ? `${fmt(carrierData.carrier_mailing_street || carrierData.phy_street, '—')}<br/>
+                 ${fmt(carrierData.carrier_mailing_city || carrierData.phy_city, '—')}, 
+                 ${fmt(carrierData.carrier_mailing_state || carrierData.phy_state, '—')} 
+                 ${fmt(carrierData.carrier_mailing_zip || carrierData.phy_zip, '—')}`
+              : '—'}
+          </div>
         </div>
       </div>
     </div>
@@ -460,57 +473,14 @@ async function loadSnapshot(dot, name) {
     <div class="section">
       <div class="section-title">Key Metrics</div>
       <div class="grid-4">
-        <div class="stat-box">
-          <div class="stat-label">Common Active</div>
-          <div class="stat-val sm green">${commonActiveDuration}</div>
-          <div class="stat-sub">Time in common authority</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Power Units (Trucks)</div>
-          <div class="stat-val">${fmt(ownerInfo?.powerUnits || c.totalPowerUnits,'—')}</div>
-          <div class="stat-sub">Total tractors/trucks</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Own Trailers</div>
-          <div class="stat-val">${fmt(ownerInfo?.ownTrailers,'—')}</div>
-          <div class="stat-sub">Owned trailers</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Total Drivers</div>
-          <div class="stat-val">${fmt(ownerInfo?.totalDrivers || c.totalDrivers,'—')}</div>
-          <div class="stat-sub">Active drivers on file</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-title">Inspection Data</div>
-      <div class="grid-3">
-        <div class="stat-box">
-          <div class="stat-label">Driver Inspections</div>
-          <div class="stat-val">${fmt(c.driverInsp, 0)}</div>
-          <div class="stat-sub">Roadside driver checks</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Vehicle Inspections</div>
-          <div class="stat-val">${fmt(c.vehicleInsp, 0)}</div>
-          <div class="stat-sub">Roadside vehicle checks</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Hazmat Inspections</div>
-          <div class="stat-val">${fmt(c.hazmatInsp, 0)}</div>
-          <div class="stat-sub">Hazmat material checks</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-title">Safety Metrics</div>
-      <div class="grid-4">
+        <div class="stat-box"><div class="stat-label">Common Active Duration</div><div class="stat-val">${mcs150Age}</div></div>
+        <div class="stat-box"><div class="stat-label">Power Units</div><div class="stat-val">${fmt(ownerInfo?.powerUnits || c.totalPowerUnits,'—')}</div></div>
+        <div class="stat-box"><div class="stat-label">Own Trailers</div><div class="stat-val">${fmt(ownerInfo?.ownTrailers,'—')}</div></div>
+        <div class="stat-box"><div class="stat-label">Total Drivers</div><div class="stat-val">${fmt(ownerInfo?.totalDrivers || c.totalDrivers,'—')}</div></div>
         <div class="stat-box"><div class="stat-label">Total Crashes</div><div class="stat-val ${c.crashTotal>0?'red':'green'}">${fmt(c.crashTotal,0)}</div></div>
         <div class="stat-box"><div class="stat-label">Fatal Crashes</div><div class="stat-val ${c.fatalCrash>0?'red':'green'}">${fmt(c.fatalCrash,0)}</div></div>
-        <div class="stat-box"><div class="stat-label">Injury Crashes</div><div class="stat-val ${c.injCrash>0?'orange':'green'}">${fmt(c.injCrash,0)}</div></div>
-        <div class="stat-box"><div class="stat-label">Tow-away Crashes</div><div class="stat-val ${c.towawayCrash>0?'orange':'green'}">${fmt(c.towawayCrash,0)}</div></div>
+        <div class="stat-box"><div class="stat-label">Hazmat Inspections</div><div class="stat-val">${fmt(c.hazmatInsp,0)}</div></div>
+        <div class="stat-box"><div class="stat-label">EIN</div><div class="stat-val sm">Not available</div></div>
       </div>
     </div>
 
@@ -546,17 +516,31 @@ async function loadSnapshot(dot, name) {
       <div class="grid-3" style="margin-bottom:14px;">
         <div class="stat-box">
           <div class="stat-label">BIPD Required</div>
-          <div class="stat-val sm">${c.bipdInsuranceRequired==='Y'?'Yes':'No'}</div>
+          <div class="stat-val sm">${c.bipdInsuranceRequired==='Y'?formatMoney(c.bipdRequiredAmount,'k'):'No'}</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">BIPD On File</div>
           <div class="stat-val sm ${parseInt(c.bipdInsuranceOnFile||0)>0?'green':'red'}">${c.bipdInsuranceOnFile?formatMoney(c.bipdInsuranceOnFile,'k'):'—'}</div>
         </div>
         <div class="stat-box">
-          <div class="stat-label">Insurance Match</div>
-          <div class="stat-val sm ${c.bipdInsuranceRequired==='Y' && parseInt(c.bipdInsuranceOnFile||0) >= parseInt(c.bipdRequiredAmount||0) ? 'green' : 'red'}">${c.bipdInsuranceRequired==='Y' ? (parseInt(c.bipdInsuranceOnFile||0) >= parseInt(c.bipdRequiredAmount||0) ? 'OK' : 'Below Limit') : 'N/A'}</div>
+          <div class="stat-label">Bond On File</div>
+          <div class="stat-val sm">${c.bondInsuranceOnFile?formatMoney(c.bondInsuranceOnFile):'—'}</div>
         </div>
       </div>
+      <div class="grid-2" style="gap:12px; margin-bottom:14px;">
+        <div class="stat-box" style="background:#f8fafc; border-color:var(--border);">
+          <div class="stat-label">Insurance Match</div>
+          <div class="stat-val sm ${c.bipdInsuranceRequired==='Y' && parseInt(c.bipdInsuranceOnFile||0) >= parseInt(c.bipdRequiredAmount||0) ? 'green' : 'red'}">${c.bipdInsuranceRequired==='Y' ? (parseInt(c.bipdInsuranceOnFile||0) >= parseInt(c.bipdRequiredAmount||0) ? 'Meets required limits' : 'Below required limits') : 'No requirement'}</div>
+        </div>
+        <div class="stat-box" style="background:#f8fafc; border-color:var(--border);">
+          <div class="stat-label">Insurance Records</div>
+          <div class="stat-val sm ${insurance.length>0 ? 'green' : 'gray'}">${insurance.length>0 ? insurance.length + ' active entries' : 'No records found'}</div>
+        </div>
+      </div>
+      <table class="data-table">
+        <thead><tr><th>Form/Type</th><th>Insurer Code</th><th>Coverage</th><th>Effective Date</th><th>Status</th></tr></thead>
+        <tbody>${insRows}</tbody>
+      </table>
     </div>
 
     <div class="section">
@@ -595,3 +579,4 @@ async function loadSnapshot(dot, name) {
 </script>
 </body>
 </html>
+
