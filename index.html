@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Freight Services | Carrier Snapshot</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carrier Snapshot | Free FMCSA Carrier Lookup</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
 
@@ -23,46 +25,98 @@
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'IBM Plex Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 32px 16px; }
+  body { font-family: 'IBM Plex Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* ── Top Nav ── */
+  .topnav {
+    background: var(--navy-dark);
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 52px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  }
+  .topnav-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: white;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+  }
+  .topnav-brand svg { width: 22px; height: 22px; fill: var(--gold); }
+  .topnav-brand span { color: var(--gold); }
+  .topnav-auth { display: flex; align-items: center; gap: 10px; }
+  .nav-user-email { font-size: 12px; color: #94a3b8; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── Page layout ── */
+  .page { padding: 28px 16px; }
   .container { max-width: 1000px; margin: 0 auto; }
 
   .header { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
-  .header-icon { width: 44px; height: 44px; background: var(--navy); border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+  .header-icon { width: 44px; height: 44px; background: var(--navy); border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .header-icon svg { width: 26px; height: 26px; fill: var(--gold); }
   .header h1 { font-size: 22px; font-weight: 700; color: var(--navy); letter-spacing: -0.3px; }
   .header p { font-size: 13px; color: var(--muted); margin-top: 2px; }
 
   .card { background: var(--white); border-radius: 12px; box-shadow: var(--shadow); padding: 28px; margin-bottom: 20px; }
 
+  /* ── Search ── */
   .search-row { display: flex; }
-  input[type="text"] { flex: 1; padding: 13px 16px; border: 2px solid var(--border); border-right: none; border-radius: 8px 0 0 8px; font-size: 15px; font-family: 'IBM Plex Sans', sans-serif; outline: none; transition: border-color 0.2s; color: var(--text); }
-  input[type="text"]:focus { border-color: var(--navy); }
+  input[type="text"], input[type="email"], input[type="password"], input[type="number"] {
+    flex: 1; padding: 13px 16px; border: 2px solid var(--border); border-radius: 8px;
+    font-size: 15px; font-family: 'IBM Plex Sans', sans-serif; outline: none;
+    transition: border-color 0.2s; color: var(--text); background: white;
+  }
+  .search-row input[type="text"] { border-right: none; border-radius: 8px 0 0 8px; }
+  input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focus, input[type="number"]:focus { border-color: var(--navy); }
   .btn-search { padding: 13px 28px; background: var(--navy); color: white; border: none; border-radius: 0 8px 8px 0; font-size: 15px; font-weight: 600; cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; transition: background 0.2s; }
   .btn-search:hover { background: var(--navy-dark); }
+  .btn-search.full { border-radius: 8px; width: 100%; }
 
+  /* ── Buttons ── */
+  .btn-select { background: var(--gold); color: var(--navy-dark); border: none; border-radius: 6px; padding: 6px 16px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; transition: background 0.15s; }
+  .btn-select:hover { background: var(--gold-dark); }
+  .btn-outline { background: none; border: 2px solid var(--navy); color: var(--navy); border-radius: 6px; padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; transition: all 0.15s; }
+  .btn-outline:hover { background: var(--navy); color: white; }
+  .btn-ghost { background: none; border: 1px solid #475569; color: #94a3b8; border-radius: 6px; padding: 5px 13px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; transition: all 0.15s; }
+  .btn-ghost:hover { border-color: white; color: white; }
+
+  /* ── Loading ── */
   .loading { display: none; align-items: center; gap: 10px; color: var(--muted); font-size: 14px; margin-top: 16px; }
   .spinner { width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--navy); border-radius: 50%; animation: spin 0.7s linear infinite; flex-shrink: 0; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* ── Table ── */
   table { width: 100%; border-collapse: collapse; }
   th { background: #f8fafc; color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; padding: 10px 14px; text-align: left; border-bottom: 2px solid var(--border); }
   td { padding: 13px 14px; border-bottom: 1px solid var(--border); font-size: 14px; vertical-align: middle; }
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: #f8fafc; }
 
+  .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .data-table th { background: #f8fafc; color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+  .data-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .data-table tr:last-child td { border-bottom: none; }
+
+  /* ── Badges ── */
   .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
-  .badge-green { background: #dcfce7; color: var(--green); }
-  .badge-red { background: #fee2e2; color: var(--red); }
+  .badge-green  { background: #dcfce7; color: var(--green); }
+  .badge-red    { background: #fee2e2; color: var(--red); }
   .badge-orange { background: #fef3c7; color: var(--orange); }
-  .badge-gray { background: #f1f5f9; color: var(--muted); }
+  .badge-gray   { background: #f1f5f9; color: var(--muted); }
 
-  .btn-select { background: var(--gold); color: var(--navy-dark); border: none; border-radius: 6px; padding: 6px 16px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; transition: background 0.15s; }
-  .btn-select:hover { background: var(--gold-dark); }
-
+  /* ── Alerts ── */
   .alert-banner { border-radius: 8px; padding: 14px 18px; margin-bottom: 12px; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
-  .alert-danger { background: #fee2e2; color: var(--red); border: 1px solid #fca5a5; }
+  .alert-danger  { background: #fee2e2; color: var(--red); border: 1px solid #fca5a5; }
   .alert-warning { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
 
+  /* ── Snapshot ── */
   .back-btn { background: none; border: none; color: var(--navy); font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; margin-bottom: 16px; padding: 0; font-family: 'IBM Plex Sans', sans-serif; }
   .back-btn:hover { color: var(--navy-dark); }
 
@@ -81,33 +135,193 @@
   .stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 6px; }
   .stat-val { font-size: 20px; font-weight: 700; color: var(--navy); }
   .stat-val.sm { font-size: 14px; font-weight: 600; }
-  .stat-val.green { color: var(--green); }
-  .stat-val.red { color: var(--red); }
+  .stat-val.green  { color: var(--green); }
+  .stat-val.red    { color: var(--red); }
   .stat-val.orange { color: var(--orange); }
   .stat-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
 
   .oos-bar-wrap { margin-top: 6px; background: var(--border); border-radius: 4px; height: 6px; overflow: hidden; }
   .oos-bar { height: 6px; border-radius: 4px; }
-  .oos-bar.safe { background: var(--green); }
-  .oos-bar.warn { background: var(--orange); }
+  .oos-bar.safe   { background: var(--green); }
+  .oos-bar.warn   { background: var(--orange); }
   .oos-bar.danger { background: var(--red); }
 
   .tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
   .tag { background: #e0eaf5; color: var(--navy); border-radius: 6px; padding: 4px 10px; font-size: 12px; font-weight: 500; }
 
-  .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .data-table th { background: #f8fafc; color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
-  .data-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-  .data-table tr:last-child td { border-bottom: none; }
+  /* ── Data gating / protection ── */
+  .gated-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .gated-wrap:hover .gated-overlay { background: rgba(26,74,124,0.12); }
+  .gated-blur {
+    filter: blur(5px);
+    user-select: none;
+    pointer-events: none;
+    color: var(--text);
+  }
+  .gated-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(26,74,124,0.06);
+    border-radius: 6px;
+    transition: background 0.15s;
+  }
+  .gated-pill {
+    background: var(--navy);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 20px;
+    white-space: nowrap;
+    letter-spacing: 0.02em;
+  }
+
+  /* Full section gate (for tables / larger areas) */
+  .section-gate {
+    background: linear-gradient(135deg, #f0f4f8 0%, #e8eef5 100%);
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 32px 24px;
+    text-align: center;
+  }
+  .section-gate h4 { font-size: 15px; font-weight: 700; color: var(--navy); margin-bottom: 6px; }
+  .section-gate p  { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+
+  /* ── Auth Modal ── */
+  .modal-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 500;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal-box {
+    background: white;
+    border-radius: 16px;
+    padding: 32px;
+    width: 100%;
+    max-width: 420px;
+    position: relative;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    animation: modalIn 0.2s ease;
+  }
+  @keyframes modalIn { from { transform: translateY(12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .modal-close { position: absolute; top: 16px; right: 16px; background: none; border: none; font-size: 22px; cursor: pointer; color: var(--muted); line-height: 1; padding: 4px; }
+  .modal-close:hover { color: var(--text); }
+  .modal-tabs { display: flex; margin-bottom: 24px; border-bottom: 2px solid var(--border); }
+  .modal-tab { flex: 1; padding: 10px; border: none; background: none; font-size: 15px; font-weight: 600; cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: color 0.15s, border-color 0.15s; }
+  .modal-tab.active { color: var(--navy); border-bottom-color: var(--navy); }
+  .modal-field { margin-bottom: 12px; }
+  .modal-field label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 5px; }
+  .modal-field input { width: 100%; }
+  .modal-error   { color: var(--red); font-size: 13px; margin-top: 8px; min-height: 18px; }
+  .modal-success { color: var(--green); font-size: 13px; margin-top: 8px; background: #dcfce7; padding: 10px 14px; border-radius: 8px; }
+  .modal-footer { margin-top: 16px; text-align: center; font-size: 13px; color: var(--muted); }
+  .modal-footer a { color: var(--navy); font-weight: 600; cursor: pointer; text-decoration: none; }
+  .modal-footer a:hover { text-decoration: underline; }
+
+  /* ── Free account promo banner ── */
+  .promo-bar {
+    background: linear-gradient(90deg, var(--navy-dark) 0%, var(--navy) 100%);
+    border-radius: 10px;
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .promo-bar p { color: white; font-size: 13px; font-weight: 500; }
+  .promo-bar p strong { color: var(--gold); }
+  .promo-bar-btns { display: flex; gap: 8px; flex-shrink: 0; }
 
   @media (max-width: 640px) {
     .grid-4 { grid-template-columns: 1fr 1fr; }
     .grid-3 { grid-template-columns: 1fr 1fr; }
     .grid-2 { grid-template-columns: 1fr; }
+    .topnav { padding: 0 12px; }
+    .page   { padding: 16px 12px; }
+    .card   { padding: 18px; }
+    .promo-bar { flex-direction: column; align-items: flex-start; }
   }
 </style>
 </head>
 <body>
+
+<!-- ── Top Navigation ─────────────────────────────────────────────── -->
+<nav class="topnav">
+  <div class="topnav-brand">
+    <svg viewBox="0 0 24 24"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zm-.5 1.5 1.96 2.5H17V9.5h2.5zM6 18c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm2.22-3c-.55-.61-1.33-1-2.22-1s-1.67.39-2.22 1H3V6h12v9H8.22zm9.78 3c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z"/></svg>
+    Carrier<span>Snapshot</span>
+  </div>
+  <div class="topnav-auth" id="authButtons">
+    <!-- Populated by JS -->
+  </div>
+</nav>
+
+<!-- ── Auth Modal ─────────────────────────────────────────────────── -->
+<div class="modal-backdrop" id="authModal" onclick="handleBackdropClick(event)">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeAuthModal()">×</button>
+
+    <div class="modal-tabs">
+      <button class="modal-tab active" id="tabLogin"  onclick="switchTab('login')">Sign In</button>
+      <button class="modal-tab"        id="tabSignup" onclick="switchTab('signup')">Create Free Account</button>
+    </div>
+
+    <!-- Login -->
+    <div id="panelLogin">
+      <div class="modal-field">
+        <label>Email</label>
+        <input type="email" id="loginEmail" placeholder="you@example.com" onkeydown="if(event.key==='Enter')signIn()">
+      </div>
+      <div class="modal-field">
+        <label>Password</label>
+        <input type="password" id="loginPassword" placeholder="Your password" onkeydown="if(event.key==='Enter')signIn()">
+      </div>
+      <button class="btn-search full" style="margin-top:4px;" onclick="signIn()">Sign In</button>
+      <div class="modal-error" id="loginError"></div>
+      <div class="modal-footer">No account? <a onclick="switchTab('signup')">Create one free →</a></div>
+    </div>
+
+    <!-- Signup -->
+    <div id="panelSignup" style="display:none;">
+      <div style="background:#f0f7ff;border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:13px;color:var(--navy);">
+        ✓ Free forever &nbsp;·&nbsp; ✓ Full carrier contact info &nbsp;·&nbsp; ✓ No credit card
+      </div>
+      <div class="modal-field">
+        <label>Email</label>
+        <input type="email" id="signupEmail" placeholder="you@example.com" onkeydown="if(event.key==='Enter')signUp()">
+      </div>
+      <div class="modal-field">
+        <label>Password <span style="font-weight:400;">(min 6 characters)</span></label>
+        <input type="password" id="signupPassword" placeholder="Choose a password" onkeydown="if(event.key==='Enter')signUp()">
+      </div>
+      <button class="btn-search full" style="margin-top:4px;" onclick="signUp()">Create Free Account</button>
+      <div class="modal-error"   id="signupError"></div>
+      <div id="signupSuccess" style="display:none;" class="modal-success"></div>
+      <div class="modal-footer">Already have an account? <a onclick="switchTab('login')">Sign in →</a></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Main Page ──────────────────────────────────────────────────── -->
+<div class="page">
 <div class="container">
 
   <div class="header">
@@ -116,64 +330,63 @@
     </div>
     <div>
       <h1>Carrier Snapshot Search</h1>
-      <p>Search by DOT#, MC#, or Company Name</p>
+      <p>Free FMCSA carrier lookup — search by DOT#, MC#, or company name</p>
     </div>
   </div>
 
+  <!-- Search card -->
   <div class="card">
     <div style="margin-bottom: 16px; display: flex; gap: 8px;">
-      <button class="btn-select" onclick="toggleSearchMode('basic')" id="basicSearchBtn" style="background: var(--navy); color: white; padding: 8px 16px;">Basic Search</button>
-      <button class="btn-select" onclick="toggleSearchMode('advanced')" id="advancedSearchBtn" style="background: var(--border); color: var(--text); padding: 8px 16px;">Advanced Search</button>
+      <button class="btn-select" onclick="toggleSearchMode('basic')"    id="basicSearchBtn"    style="background:var(--navy);color:white;padding:8px 16px;">Basic Search</button>
+      <button class="btn-select" onclick="toggleSearchMode('advanced')" id="advancedSearchBtn" style="background:var(--border);color:var(--text);padding:8px 16px;">Advanced Search</button>
     </div>
 
-    <!-- BASIC SEARCH -->
+    <!-- Basic -->
     <div id="basicSearchPanel">
       <div class="search-row">
-        <input type="text" id="searchInput" placeholder="e.g. 1677170 or MID VALLEY TRANSPORT" onkeydown="if(event.key==='Enter') searchCarriers()">
+        <input type="text" id="searchInput" placeholder="e.g. 1677170 or MID VALLEY TRANSPORT" onkeydown="if(event.key==='Enter')searchCarriers()">
         <button class="btn-search" onclick="searchCarriers()">Search</button>
       </div>
     </div>
 
-    <!-- ADVANCED SEARCH -->
+    <!-- Advanced -->
     <div id="advancedSearchPanel" style="display:none;">
       <div class="grid-2" style="margin-bottom:16px;">
         <div>
           <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">Company Name / DOT#</label>
-          <input type="text" id="advCompanyName" placeholder="Optional" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:6px;font-family:'IBM Plex Sans',sans-serif;">
+          <input type="text" id="advCompanyName" placeholder="Optional" style="width:100%;">
         </div>
         <div>
           <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">Company Status</label>
-          <select id="advStatus" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:6px;font-family:'IBM Plex Sans',sans-serif;">
+          <select id="advStatus" style="width:100%;padding:12px;border:2px solid var(--border);border-radius:8px;font-family:'IBM Plex Sans',sans-serif;font-size:14px;">
             <option value="">Any Status</option>
             <option value="A">Active Only</option>
             <option value="I">Inactive</option>
           </select>
         </div>
       </div>
-
       <div class="grid-2" style="margin-bottom:16px;">
         <div>
           <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">State</label>
-          <input type="text" id="advState" placeholder="e.g. CA, TX, NY" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:6px;font-family:'IBM Plex Sans',sans-serif;">
+          <input type="text" id="advState" placeholder="e.g. CA, TX, NY" style="width:100%;">
         </div>
         <div>
           <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">City</label>
-          <input type="text" id="advCity" placeholder="Optional" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:6px;font-family:'IBM Plex Sans',sans-serif;">
+          <input type="text" id="advCity" placeholder="Optional" style="width:100%;">
         </div>
       </div>
-
       <div class="grid-3" style="margin-bottom:16px;">
         <div>
           <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">Min Power Units</label>
-          <input type="number" id="advMinUnits" placeholder="0" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:6px;font-family:'IBM Plex Sans',sans-serif;">
+          <input type="number" id="advMinUnits" placeholder="0" style="width:100%;">
         </div>
         <div>
           <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">Max Power Units</label>
-          <input type="number" id="advMaxUnits" placeholder="Unlimited" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:6px;font-family:'IBM Plex Sans',sans-serif;">
+          <input type="number" id="advMaxUnits" placeholder="Unlimited" style="width:100%;">
         </div>
         <div>
           <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;">Operating Authority</label>
-          <select id="advAuthority" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:6px;font-family:'IBM Plex Sans',sans-serif;">
+          <select id="advAuthority" style="width:100%;padding:12px;border:2px solid var(--border);border-radius:8px;font-family:'IBM Plex Sans',sans-serif;font-size:14px;">
             <option value="">Any Authority</option>
             <option value="COMMON">Common Carrier</option>
             <option value="CONTRACT">Contract</option>
@@ -181,10 +394,9 @@
           </select>
         </div>
       </div>
-
-      <div style="display:flex;gap:8px;margin-bottom:16px;">
-        <button class="btn-search" onclick="advancedSearch()" style="flex:1;padding:12px;">Search</button>
-        <button class="btn-select" onclick="clearAdvancedFilters()" style="padding:12px;">Clear Filters</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-search" onclick="advancedSearch()" style="flex:1;padding:12px;border-radius:8px;">Search</button>
+        <button class="btn-select" onclick="clearAdvancedFilters()" style="padding:12px;">Clear</button>
       </div>
     </div>
 
@@ -194,25 +406,29 @@
     </div>
   </div>
 
+  <!-- Results -->
   <div class="card" id="resultsCard" style="display:none;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
       <div>
         <h3 style="margin:0;font-size:16px;font-weight:700;color:var(--navy);">Search Results</h3>
-        <p id="resultCount" style="margin:4px 0 0 0;font-size:13px;color:var(--muted);">Loading...</p>
+        <p id="resultCount" style="margin:4px 0 0;font-size:13px;color:var(--muted);">Loading...</p>
       </div>
       <div style="display:flex;gap:8px;">
-        <button class="btn-select" onclick="exportToCSV()" style="background:var(--gold);padding:10px 16px;">📥 Export CSV</button>
-        <button class="btn-select" onclick="resetSearch()" style="background:var(--border);color:var(--text);padding:10px 16px;">New Search</button>
+        <button class="btn-select" onclick="exportToCSV()" style="background:var(--gold);padding:8px 14px;">Export CSV</button>
+        <button class="btn-select" onclick="resetSearch()" style="background:var(--border);color:var(--text);padding:8px 14px;">New Search</button>
       </div>
     </div>
-    <table>
-      <thead><tr>
-        <th>Legal Name</th><th>DOT Number</th><th>MC/Docket</th><th>Status</th><th>Location</th><th>Units</th><th>Action</th>
-      </tr></thead>
-      <tbody id="tableBody"></tbody>
-    </table>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead><tr>
+          <th>Legal Name</th><th>DOT Number</th><th>MC/Docket</th><th>Status</th><th>Location</th><th>Units</th><th>Action</th>
+        </tr></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
   </div>
 
+  <!-- Snapshot -->
   <div id="snapshotSection" style="display:none;">
     <button class="back-btn" onclick="goBack()">← Back to Results</button>
     <div id="alertBanners"></div>
@@ -226,107 +442,187 @@
   </div>
 
 </div>
+</div>
+
 <script>
-const N8N_SEARCH      = "https://n8n.turbofreightllc.com/webhook/carrier-search";
-const FMCSA_KEY       = "765f2002350d7989b1fef32b3522639c55fc27a8";
-const FMCSA_BASE      = "https://mobile.fmcsa.dot.gov/qc/services/carriers";
-const SOCRATA_CARRIER = "https://data.transportation.gov/resource/az4n-8mr2.json";
+// ── Config — replace these with your Supabase project values ──────────────────
+// Get them from: Supabase Dashboard → Settings → API
+const SUPABASE_URL      = 'https://afhmeuqlihrxcjldymdy.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_sUPyQ9rbObok601xWS_-wA_TrvQhexk';
 
-// Store results for CSV export
-let allCarrierResults = [];
-let detailedResultsCache = {};
+// ── Supabase init ─────────────────────────────────────────────────────────────
+let sb = null;
+let currentUser = null;
 
-function fmcsa(path) {
-  return fetch(`${FMCSA_BASE}${path}?webKey=${FMCSA_KEY}`)
-    .then(r => r.ok ? r.json() : null).catch(() => null);
-}
-function socrata(url, params) {
-  return fetch(`${url}?${new URLSearchParams(params)}`)
-    .then(r => r.ok ? r.json() : []).catch(() => []);
-}
-function getCarrierData(dotNumber) {
-  return socrata(SOCRATA_CARRIER, { dot_number: dotNumber, '$limit': 1 })
-    .then(data => Array.isArray(data) && data.length > 0 ? data[0] : null);
+function initSupabase() {
+  if (SUPABASE_URL === 'YOUR_SUPABASE_URL') return; // not configured yet
+  const { createClient } = supabase;
+  sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  sb.auth.getUser().then(({ data: { user } }) => {
+    currentUser = user;
+    renderAuthUI();
+  });
+
+  sb.auth.onAuthStateChange((event, session) => {
+    currentUser = session?.user || null;
+    renderAuthUI();
+    if (event === 'SIGNED_IN') closeAuthModal();
+  });
 }
 
-function toggleSearchMode(mode) {
-  const basicPanel = document.getElementById("basicSearchPanel");
-  const advPanel = document.getElementById("advancedSearchPanel");
-  const basicBtn = document.getElementById("basicSearchBtn");
-  const advBtn = document.getElementById("advancedSearchBtn");
-  
-  if (mode === 'basic') {
-    basicPanel.style.display = 'block';
-    advPanel.style.display = 'none';
-    basicBtn.style.background = 'var(--navy)';
-    basicBtn.style.color = 'white';
-    advBtn.style.background = 'var(--border)';
-    advBtn.style.color = 'var(--text)';
+// ── Auth UI ───────────────────────────────────────────────────────────────────
+function renderAuthUI() {
+  const el = document.getElementById('authButtons');
+  if (!sb) {
+    el.innerHTML = '';
+    return;
+  }
+  if (currentUser) {
+    el.innerHTML = `
+      <span class="nav-user-email">${currentUser.email}</span>
+      <button class="btn-ghost" onclick="signOut()">Sign Out</button>`;
   } else {
-    basicPanel.style.display = 'none';
-    advPanel.style.display = 'block';
-    basicBtn.style.background = 'var(--border)';
-    basicBtn.style.color = 'var(--text)';
-    advBtn.style.background = 'var(--navy)';
-    advBtn.style.color = 'white';
+    el.innerHTML = `
+      <button class="btn-ghost"   onclick="showAuthModal('login')">Sign In</button>
+      <button class="btn-select"  onclick="showAuthModal('signup')" style="background:var(--gold);color:var(--navy-dark);">Sign Up Free</button>`;
   }
 }
 
-function clearAdvancedFilters() {
-  document.getElementById("advCompanyName").value = '';
-  document.getElementById("advStatus").value = '';
-  document.getElementById("advState").value = '';
-  document.getElementById("advCity").value = '';
-  document.getElementById("advMinUnits").value = '';
-  document.getElementById("advMaxUnits").value = '';
-  document.getElementById("advAuthority").value = '';
+// ── Auth modal ────────────────────────────────────────────────────────────────
+function showAuthModal(tab = 'login') {
+  switchTab(tab);
+  document.getElementById('authModal').classList.add('open');
+}
+function closeAuthModal() {
+  document.getElementById('authModal').classList.remove('open');
+  clearAuthErrors();
+}
+function handleBackdropClick(e) {
+  if (e.target === document.getElementById('authModal')) closeAuthModal();
+}
+function switchTab(tab) {
+  document.getElementById('panelLogin').style.display  = tab === 'login'  ? 'block' : 'none';
+  document.getElementById('panelSignup').style.display = tab === 'signup' ? 'block' : 'none';
+  document.getElementById('tabLogin').classList.toggle('active',  tab === 'login');
+  document.getElementById('tabSignup').classList.toggle('active', tab === 'signup');
+}
+function clearAuthErrors() {
+  ['loginError','signupError'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '';
+  });
+  const ss = document.getElementById('signupSuccess');
+  if (ss) ss.style.display = 'none';
 }
 
-function resetSearch() {
-  document.getElementById("searchInput").value = '';
-  clearAdvancedFilters();
-  document.getElementById("resultsCard").style.display = 'none';
-  document.getElementById("snapshotSection").style.display = 'none';
-  toggleSearchMode('basic');
-  allCarrierResults = [];
+async function signIn() {
+  if (!sb) return;
+  const email    = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errEl    = document.getElementById('loginError');
+  errEl.textContent = '';
+
+  if (!email || !password) { errEl.textContent = 'Please enter your email and password.'; return; }
+
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) errEl.textContent = error.message;
+}
+
+async function signUp() {
+  if (!sb) return;
+  const email    = document.getElementById('signupEmail').value.trim();
+  const password = document.getElementById('signupPassword').value;
+  const errEl    = document.getElementById('signupError');
+  const sucEl    = document.getElementById('signupSuccess');
+  errEl.textContent = '';
+  sucEl.style.display = 'none';
+
+  if (!email) { errEl.textContent = 'Please enter your email.'; return; }
+  if (password.length < 6) { errEl.textContent = 'Password must be at least 6 characters.'; return; }
+
+  const { error } = await sb.auth.signUp({ email, password });
+  if (error) {
+    errEl.textContent = error.message;
+  } else {
+    sucEl.textContent = '✓ Account created! Check your email to confirm, then sign in.';
+    sucEl.style.display = 'block';
+  }
+}
+
+async function signOut() {
+  if (!sb) return;
+  await sb.auth.signOut();
+}
+
+// ── Data gating helper ────────────────────────────────────────────────────────
+// Wraps sensitive content: if guest, shows blurred placeholder with lock pill.
+function protect(content, blurPlaceholder) {
+  if (currentUser) return content;
+  const placeholder = blurPlaceholder || content || '•••••••••';
+  return `<span class="gated-wrap" onclick="showAuthModal('signup')" title="Create a free account to view">
+    <span class="gated-blur">${placeholder}</span>
+    <span class="gated-overlay"><span class="gated-pill">🔒 Free</span></span>
+  </span>`;
+}
+
+// Renders a full gated section for tables/blocks of data
+function gateSection(title, message) {
+  if (currentUser) return null; // null = render the real section
+  return `<div class="section-gate">
+    <h4>🔒 ${title}</h4>
+    <p>${message}</p>
+    <button class="btn-search" onclick="showAuthModal('signup')" style="border-radius:8px;padding:10px 24px;">Create Free Account</button>
+  </div>`;
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let allCarrierResults = [];
+
+// ── Search ────────────────────────────────────────────────────────────────────
+async function searchCarriers() {
+  const query = document.getElementById('searchInput').value.trim();
+  if (!query) return alert('Please enter a search term.');
+  document.getElementById('resultsCard').style.display    = 'none';
+  document.getElementById('snapshotSection').style.display = 'none';
+  setLoading(true, 'Searching FMCSA databases...');
+  try {
+    const r = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+    setLoading(false);
+    if (!data || data.length === 0) return alert('No carriers found.');
+    allCarrierResults = data;
+    displayResults(data);
+    document.getElementById('resultsCard').style.display = 'block';
+  } catch (e) {
+    setLoading(false);
+    alert('Search failed. Please try again.');
+  }
 }
 
 async function advancedSearch() {
-  const name = document.getElementById("advCompanyName").value.trim();
-  const status = document.getElementById("advStatus").value;
-  const state = document.getElementById("advState").value.trim().toUpperCase();
-  const city = document.getElementById("advCity").value.trim();
-  const minUnits = parseInt(document.getElementById("advMinUnits").value) || 0;
-  const maxUnits = parseInt(document.getElementById("advMaxUnits").value) || Infinity;
-  const authority = document.getElementById("advAuthority").value;
+  const name      = document.getElementById('advCompanyName').value.trim();
+  const status    = document.getElementById('advStatus').value;
+  const state     = document.getElementById('advState').value.trim().toUpperCase();
+  const city      = document.getElementById('advCity').value.trim();
+  const minUnits  = parseInt(document.getElementById('advMinUnits').value) || 0;
+  const maxUnits  = parseInt(document.getElementById('advMaxUnits').value) || Infinity;
 
-  if (!name && !state && !city) {
-    alert("Please enter at least one search criteria");
-    return;
-  }
+  if (!name && !state && !city) { alert('Please enter at least one search criterion.'); return; }
 
-  document.getElementById("resultsCard").style.display = "none";
-  document.getElementById("snapshotSection").style.display = "none";
-  setLoading(true, "Searching with advanced filters...");
+  document.getElementById('resultsCard').style.display    = 'none';
+  document.getElementById('snapshotSection').style.display = 'none';
+  setLoading(true, 'Applying advanced filters...');
 
   try {
-    // Build search query from filters
-    let searchQuery = '';
-    if (name) searchQuery = name;
-    else if (state) searchQuery = `companies in ${state}`;
-    if (city) searchQuery += ` ${city}`;
-
-    const r = await fetch(`${N8N_SEARCH}?q=${encodeURIComponent(searchQuery)}`);
+    const q = name || (city ? `${city} ${state}` : state);
+    const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
     if (!r.ok) throw new Error();
     let data = await r.json();
-    
-    if (!data || data.length === 0) {
-      setLoading(false);
-      alert("No carriers found matching your filters.");
-      return;
-    }
 
-    // Apply local filtering based on advanced criteria
+    if (!data || data.length === 0) { setLoading(false); alert('No carriers found.'); return; }
+
     data = data.filter(c => {
       if (status && c.status_code !== status) return false;
       if (state && (c.phy_state || '').toUpperCase() !== state) return false;
@@ -337,319 +633,160 @@ async function advancedSearch() {
     });
 
     setLoading(false);
-
-    if (data.length === 0) {
-      alert("No carriers match your filter criteria.");
-      return;
-    }
-
+    if (data.length === 0) { alert('No carriers match your filter criteria.'); return; }
     allCarrierResults = data;
     displayResults(data);
-    document.getElementById("resultsCard").style.display = "block";
-  } catch(e) {
+    document.getElementById('resultsCard').style.display = 'block';
+  } catch {
     setLoading(false);
-    alert("Error searching. Please try again.");
+    alert('Search failed. Please try again.');
   }
 }
 
 function displayResults(data) {
-  const tbody = document.getElementById("tableBody");
-  tbody.innerHTML = "";
-  document.getElementById("resultCount").textContent = `${data.length} carrier${data.length !== 1 ? 's' : ''} found`;
-  
+  const tbody = document.getElementById('tableBody');
+  tbody.innerHTML = '';
+  document.getElementById('resultCount').textContent =
+    `${data.length} carrier${data.length !== 1 ? 's' : ''} found`;
+
   data.forEach(c => {
     const active = c.status_code === 'A';
-    const units = c.powerUnits || c.total_power_units || '—';
-    const tr = document.createElement("tr");
+    const units  = c.powerUnits || c.total_power_units || '—';
+    const tr     = document.createElement('tr');
     tr.innerHTML = `
       <td><strong>${fmt(c.legal_name)}</strong></td>
       <td style="font-family:'IBM Plex Mono',monospace;font-size:13px;">${fmt(c.dot_number)}</td>
       <td style="font-family:'IBM Plex Mono',monospace;font-size:13px;">${fmt(c.docket1)}</td>
-      <td><span class="badge ${active?'badge-green':'badge-red'}">${active?'Active':'Inactive'}</span></td>
-      <td>${[c.phy_city,c.phy_state].filter(Boolean).join(', ')||'—'}</td>
+      <td><span class="badge ${active ? 'badge-green' : 'badge-red'}">${active ? 'Active' : 'Inactive'}</span></td>
+      <td>${[c.phy_city, c.phy_state].filter(Boolean).join(', ') || '—'}</td>
       <td>${units}</td>
-      <td><button class="btn-select" onclick="loadSnapshot('${c.dot_number}','${(c.legal_name||'').replace(/'/g,"\\'")}')">Select</button></td>`;
+      <td><button class="btn-select" onclick="loadSnapshot('${c.dot_number}','${(c.legal_name||'').replace(/'/g,"\\'")}')">View</button></td>`;
     tbody.appendChild(tr);
   });
 }
 
-function parseSocrataDate(value) {
-  if (!value) return null;
-  const cleaned = value.toString().replace(/\D/g, '');
-  if (cleaned.length < 8) return null;
-  const year = cleaned.slice(0, 4);
-  const month = cleaned.slice(4, 6);
-  const day = cleaned.slice(6, 8);
-  const date = new Date(`${year}-${month}-${day}T00:00:00Z`);
-  return isNaN(date.getTime()) ? null : date;
-}
-function humanDuration(fromDate) {
-  if (!fromDate) return '—';
-  const start = typeof fromDate === 'string' ? new Date(fromDate) : fromDate;
-  if (isNaN(start.getTime())) return '—';
-  const now = new Date();
-  const ms = now - start;
-  if (ms < 0) return '0 days';
-  const days = Math.floor(ms / 86400000);
-  if (days < 30) return `${days} day${days === 1 ? '' : 's'}`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months} month${months === 1 ? '' : 's'}`;
-  const years = Math.floor(months / 12);
-  const remMonths = months % 12;
-  return remMonths ? `${years}y ${remMonths}m` : `${years}y`;
-}
-function fmt(v, fallback) { return (v !== null && v !== undefined && v !== '') ? v : (fallback !== undefined ? fallback : '—'); }
-function formatMoney(value, suffix = '') {
-  const n = parseFloat(value);
-  if (Number.isFinite(n)) return '$' + n.toLocaleString() + suffix;
-  return '—';
-}
-function pct(v) { return v != null ? v.toFixed(1) + '%' : '—'; }
-function oosColor(rate, avg) {
-  if (rate == null) return 'safe';
-  if (rate > avg * 1.5) return 'danger';
-  if (rate > avg) return 'warn';
-  return 'safe';
-}
-function authLabel(code) { return {A:'Active',I:'Inactive',N:'None'}[code] || code || '—'; }
-function badgeClass(code) { return code==='A' ? 'badge-green' : code==='I' ? 'badge-red' : 'badge-gray'; }
-function dateStr(s) {
-  if (!s) return '—';
-  try { return new Date(s).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); } catch(e) { return s; }
-}
+// ── Snapshot ──────────────────────────────────────────────────────────────────
+async function loadSnapshot(dot) {
+  document.getElementById('resultsCard').style.display    = 'none';
+  document.getElementById('snapshotSection').style.display = 'block';
+  document.getElementById('snapshotLoading').style.display = 'block';
+  document.getElementById('snapshotContent').style.display = 'none';
+  document.getElementById('alertBanners').innerHTML        = '';
+  document.getElementById('loadingStage').textContent     = 'Fetching carrier data...';
 
-function normalizeString(value) {
-  return (value || '').toString().trim().replace(/\s+/g, ' ').replace(/[^a-z0-9 ]/gi, '').toLowerCase();
-}
-
-async function searchCarriers() {
-  const query = document.getElementById("searchInput").value.trim();
-  if (!query) return alert("Please enter a search term.");
-  document.getElementById("resultsCard").style.display = "none";
-  document.getElementById("snapshotSection").style.display = "none";
-  setLoading(true, "Searching FMCSA databases...");
+  let payload;
   try {
-    const r = await fetch(`${N8N_SEARCH}?q=${encodeURIComponent(query)}`);
-    if (!r.ok) throw new Error();
-    const data = await r.json();
-    setLoading(false);
-    if (!data || data.length === 0) return alert("No carriers found.");
-    
-    allCarrierResults = data;
-    displayResults(data);
-    document.getElementById("resultsCard").style.display = "block";
-  } catch(e) {
-    setLoading(false);
-    alert("Error searching. Check your n8n search webhook.");
-  }
-}
-
-function setLoading(show, text) {
-  document.getElementById("loadingMsg").style.display = show ? "flex" : "none";
-  if (text) document.getElementById("loadingText").textContent = text;
-}
-
-function goBack() {
-  document.getElementById("snapshotSection").style.display = "none";
-  document.getElementById("resultsCard").style.display = "block";
-}
-
-function exportToCSV() {
-  if (allCarrierResults.length === 0) {
-    alert("No results to export. Please perform a search first.");
+    const r = await fetch(`/api/carrier?dot=${encodeURIComponent(dot)}`);
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to load carrier');
+    }
+    payload = await r.json();
+  } catch (e) {
+    document.getElementById('snapshotLoading').style.display = 'none';
+    document.getElementById('snapshotContent').innerHTML = `<div style="text-align:center;padding:40px;">
+      <p style="color:var(--red);font-size:16px;font-weight:700;">Could not load carrier data</p>
+      <p style="margin-top:8px;color:var(--muted);">${e.message}</p></div>`;
+    document.getElementById('snapshotContent').style.display = 'block';
     return;
   }
 
-  const headers = [
-    'Legal Name',
-    'DOT Number',
-    'MC/Docket',
-    'Status',
-    'City',
-    'State',
-    'Power Units',
-    'Contact Phone',
-    'MCS-150 Date'
-  ];
-
-  const rows = allCarrierResults.map(c => [
-    fmt(c.legal_name),
-    fmt(c.dot_number),
-    fmt(c.docket1),
-    c.status_code === 'A' ? 'Active' : 'Inactive',
-    fmt(c.phy_city),
-    fmt(c.phy_state),
-    fmt(c.powerUnits || c.total_power_units),
-    fmt(c.telephone),
-    fmt(c.mcs150_date)
-  ]);
-
-  const csvContent = [
-    headers.join(','),
-    ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-  ].join('\n');
-
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  const url = URL.createObjectURL(blob);
-  link.setAttribute('href', url);
-  link.setAttribute('download', `carrier-search-${new Date().toISOString().split('T')[0]}.csv`);
-  link.style.visibility = 'hidden';
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  renderSnapshot(payload);
 }
 
-async function loadSnapshot(dot, name) {
-  document.getElementById("resultsCard").style.display = "none";
-  document.getElementById("snapshotSection").style.display = "block";
-  document.getElementById("snapshotLoading").style.display = "block";
-  document.getElementById("snapshotContent").style.display = "none";
-  document.getElementById("alertBanners").innerHTML = "";
-  document.getElementById("loadingStage").textContent = "Fetching all FMCSA data in parallel...";
+function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, socrata }) {
+  const c        = main.content.carrier;
+  const basicsArr   = basics?.content?.basics || [];
+  const cargoArr    = cargo?.content?.cargoCarried || [];
+  const opsArr      = ops?.content?.operationClassification || [];
+  const docketsArr  = dockets?.content?.docketNumbers || [];
+  const authorityArr = authority?.content?.authority || [];
 
-  const [mainData, basicsData, cargoData, opsData, docketData, authorityData, oosData, carrierData] = await Promise.all([
-    fmcsa(`/${dot}`),
-    fmcsa(`/${dot}/basics`),
-    fmcsa(`/${dot}/cargo-carried`),
-    fmcsa(`/${dot}/operation-classification`),
-    fmcsa(`/${dot}/docket-numbers`),
-    fmcsa(`/${dot}/authority`),
-    fmcsa(`/${dot}/oos`),
-    getCarrierData(dot)
-  ]);
+  // Owner info from Socrata
+  const ownerName  = socrata?.company_officer_1 || null;
+  const phone      = socrata?.phone || c.telephone || null;
+  const email      = socrata?.email_address || null;
+  const powerUnits = parseInt(socrata?.power_units || c.totalPowerUnits) || null;
+  const ownTrailers = parseInt(socrata?.owntrail) || null;
+  const totalDrivers = parseInt(socrata?.total_drivers || c.totalDrivers) || null;
 
-  if (!mainData || !mainData.content) {
-    document.getElementById("snapshotLoading").style.display = "none";
-    document.getElementById("snapshotContent").innerHTML = `<div style="text-align:center;padding:40px;"><p style="color:var(--red);font-size:16px;font-weight:700;">Could not load carrier data</p><p style="margin-top:8px;color:var(--muted);">FMCSA returned an error for DOT# ${dot}.</p></div>`;
-    document.getElementById("snapshotContent").style.display = "block";
-    return;
-  }
-
-  const c          = mainData.content.carrier;
-  let ownerInfo    = null;
-  
-  // Extract owner info from Socrata carrier data (priority)
-  if (carrierData) {
-    ownerInfo = {
-      ownerName: carrierData.company_officer_1 || null,
-      phone: carrierData.phone || null,
-      email: carrierData.email_address || null,
-      powerUnits: parseInt(carrierData.power_units) || 0,
-      ownTrailers: parseInt(carrierData.owntrail) || 0,
-      totalDrivers: parseInt(carrierData.total_drivers) || 0
-    };
-  }
-
-  const basics     = basicsData?.content?.basics || [];
-  const cargo      = cargoData?.content?.cargoCarried || [];
-  const ops        = opsData?.content?.operationClassification || [];
-  const dockets    = docketData?.content?.docketNumbers || [];
-  const authority  = authorityData?.content?.authority || [];
-  const oos        = oosData?.content?.oos || [];
-  const insurance  = [];
-
-  // ── Alert banners ──────────────────────────────────────────
+  // Alert banners
   const alerts = [];
   if (c.allowedToOperate !== 'Y')
-    alerts.push({type:'danger', msg:'⚠️ This carrier is NOT authorized to operate.'});
+    alerts.push({ type: 'danger',  msg: '⚠️ This carrier is NOT authorized to operate.' });
   if (c.commonAuthorityStatus === 'I')
-    alerts.push({type:'danger', msg:'⚠️ Common authority is Inactive.'});
-  const pendingRevoke = authority.filter(a => a.applicationStatus === 'P');
-  if (pendingRevoke.length > 0)
-    alerts.push({type:'warning', msg:'⚠️ This carrier has a pending authority revocation.'});
+    alerts.push({ type: 'danger',  msg: '⚠️ Common authority is Inactive.' });
+  if (authorityArr.some(a => a.applicationStatus === 'P'))
+    alerts.push({ type: 'warning', msg: '⚠️ This carrier has a pending authority revocation.' });
 
-  document.getElementById("alertBanners").innerHTML = alerts.map(a =>
-    `<div class="alert-banner alert-${a.type}">${a.msg}</div>`).join('');
+  document.getElementById('alertBanners').innerHTML =
+    alerts.map(a => `<div class="alert-banner alert-${a.type}">${a.msg}</div>`).join('');
 
-  // ── Build sections ─────────────────────────────────────────
-  const mcNumber = carrierData && (carrierData.docket1prefix || carrierData.docket1)
-    ? `${carrierData.docket1prefix || ''}${carrierData.docket1 || ''}`
-    : dockets.map(d=>`${d.prefix||''}${d.docketNumber}`).join(', ');
-  const docketStr = mcNumber || '—';
-  
-  // Parse MCS-150 date if available
-  const mcs150Date = carrierData?.mcs150_date ? parseSocrataDate(carrierData.mcs150_date) : null;
-  const mcs150Age = mcs150Date ? humanDuration(mcs150Date) : '—';
+  // Dates & MC
+  const mcs150Date  = socrata?.mcs150_date ? parseSocrataDate(socrata.mcs150_date) : null;
+  const mcs150Age   = mcs150Date ? humanDuration(mcs150Date) : '—';
   const mcs150Status = mcs150Date ? (new Date() - mcs150Date < 730 * 86400000 ? 'Current' : 'Outdated') : 'Unknown';
-  const mcs150FormattedDate = mcs150Date ? dateStr(mcs150Date) : '—';
-  const docketTags = dockets.length > 0
-    ? dockets.map(d=>`<span class="tag">${d.prefix||''}${d.docketNumber}</span>`).join('')
+  const mcs150Formatted = mcs150Date ? dateStr(mcs150Date) : '—';
+
+  const mcNumber = socrata && (socrata.docket1prefix || socrata.docket1)
+    ? `${socrata.docket1prefix || ''}${socrata.docket1 || ''}`
+    : docketsArr.map(d => `${d.prefix||''}${d.docketNumber}`).join(', ');
+  const docketStr  = mcNumber || '—';
+  const docketTags = docketsArr.length > 0
+    ? docketsArr.map(d => `<span class="tag">${d.prefix||''}${d.docketNumber}</span>`).join('')
     : '<span style="color:var(--muted);font-size:13px;">No docket numbers on file</span>';
-
-  const cargoTags = cargo.length > 0
-    ? cargo.map(g=>`<span class="tag">${g.cargoClassDesc}</span>`).join('')
+  const cargoTags  = cargoArr.length > 0
+    ? cargoArr.map(g => `<span class="tag">${g.cargoClassDesc}</span>`).join('')
     : '<span style="color:var(--muted);font-size:13px;">No cargo data</span>';
-
-  const opsTags = ops.length > 0
-    ? ops.map(o=>`<span class="tag">${o.operationClassDesc}</span>`).join('')
+  const opsTags    = opsArr.length > 0
+    ? opsArr.map(o => `<span class="tag">${o.operationClassDesc}</span>`).join('')
     : '<span style="color:var(--muted);font-size:13px;">No data</span>';
 
-  const authRows = authority.length > 0
-    ? authority.map(a=>`<tr>
+  const authRows = authorityArr.length > 0
+    ? authorityArr.map(a => `<tr>
         <td>${fmt(a.operatingAuthorityType)}</td>
         <td><span class="badge ${badgeClass(a.authorityStatus)}">${authLabel(a.authorityStatus)}</span></td>
         <td>${dateStr(a.grantedDate)}</td>
-        <td>${a.applicationStatus==='P'?'<span class="badge badge-orange">Pending Revocation</span>':fmt(a.applicationStatus)}</td>
+        <td>${a.applicationStatus==='P' ? '<span class="badge badge-orange">Pending Revocation</span>' : fmt(a.applicationStatus)}</td>
       </tr>`).join('')
     : '<tr><td colspan="4" style="color:var(--muted);text-align:center;padding:16px;">No authority records</td></tr>';
 
-  const insRows = insurance.length > 0
-    ? insurance.map(i => {
-        const isCancelled = i.ins_cancellation_date && new Date(i.ins_cancellation_date) < new Date();
-        const isPending   = i.ins_cancellation_date && new Date(i.ins_cancellation_date) > new Date();
-        return `<tr>
-          <td>${fmt(i.ins_type)}</td>
-          <td>${fmt(i.ins_ins_code)}</td>
-          <td>$${parseInt(i.coverage_from||0).toLocaleString()}</td>
-          <td>${dateStr(i.ins_effective_dt)}</td>
-          <td>${isPending
-            ? `<span class="badge badge-red">Cancels ${dateStr(i.ins_cancellation_date)}</span>`
-            : isCancelled
-              ? `<span class="badge badge-gray">Cancelled ${dateStr(i.ins_cancellation_date)}</span>`
-              : '<span class="badge badge-green">Active</span>'}</td>
-        </tr>`;}).join('')
-    : '<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:16px;">No insurance records found</td></tr>';
-
-  const basicCards = basics.length > 0
-    ? basics.map(b => {
-        const isAlert = b.alertIndicator === 'Y';
-        const p = b.percentile;
-        return `<div class="stat-box" style="${isAlert?'border-color:var(--red);':''};min-width:160px;flex:1;">
-          <div class="stat-label">${fmt(b.basic)}</div>
-          <div class="stat-val sm ${isAlert?'red':p>75?'orange':p!=null?'green':''}">${p!=null?p+'th pct':'N/A'}</div>
-          <div class="stat-sub">${isAlert?'⚠️ ALERT':'Measure: '+fmt(b.measure,'N/A')}</div>
-        </div>`;}).join('')
-    : '<p style="color:var(--muted);font-size:13px;">No BASIC scores available (carrier may not have enough inspections)</p>';
-
+  // OOS
   const driverAvg  = parseFloat(c.driverOosRateNationalAverage)  || 5.51;
   const vehicleAvg = parseFloat(c.vehicleOosRateNationalAverage) || 20.72;
   const hazmatAvg  = parseFloat(c.hazmatOosRateNationalAverage)  || 4.5;
 
-  function oosBox(label, rate, avg, insp) {
-    const color = oosColor(rate, avg);
-    const barW = rate != null ? Math.min((rate/Math.max(avg*2,1))*100, 100) : 0;
-    return `<div class="stat-box">
-      <div class="stat-label">${label}</div>
-      <div class="stat-val ${color==='danger'?'red':color==='warn'?'orange':'green'}">${pct(rate)}</div>
-      <div class="oos-bar-wrap"><div class="oos-bar ${color}" style="width:${barW}%"></div></div>
-      <div class="stat-sub">Natl avg: ${avg}% · ${insp??0} inspections</div>
-    </div>`;
-  }
+  // CSA BASIC scores
+  const basicCards = basicsArr.length > 0
+    ? basicsArr.map(b => {
+        const isAlert = b.alertIndicator === 'Y';
+        const p = b.percentile;
+        return `<div class="stat-box" style="${isAlert?'border-color:var(--red);':''};min-width:160px;flex:1;">
+          <div class="stat-label">${fmt(b.basic)}</div>
+          <div class="stat-val sm ${isAlert?'red':p>75?'orange':p!=null?'green':''}">${p!=null ? p+'th pct' : 'N/A'}</div>
+          <div class="stat-sub">${isAlert ? '⚠️ ALERT' : 'Measure: '+fmt(b.measure,'N/A')}</div>
+        </div>`;
+      }).join('')
+    : '<p style="color:var(--muted);font-size:13px;">No BASIC scores available (carrier may not have enough inspections)</p>';
 
-  // ── Full render ────────────────────────────────────────────
-  document.getElementById("snapshotContent").innerHTML = `
+  // Insurance gate (hide detail table for guests, show summary)
+  const insuranceGate = gateSection(
+    'Insurance Detail Records',
+    'Create a free account to view insurance filings, coverage amounts, insurer details, and cancellation status.'
+  );
+
+  document.getElementById('snapshotContent').innerHTML = `
+    <!-- Header -->
     <div class="snap-header">
       <div>
-        <div class="snap-name">${fmt(c.legalName)}${c.dbaName?` <span style="font-weight:400;font-size:15px;color:var(--muted);">dba ${c.dbaName}</span>`:''}
-        </div>
+        <div class="snap-name">${fmt(c.legalName)}${c.dbaName ? ` <span style="font-weight:400;font-size:15px;color:var(--muted);">dba ${c.dbaName}</span>` : ''}</div>
         <div class="snap-meta">DOT# ${c.dotNumber} &nbsp;·&nbsp; MC/FF: ${docketStr} &nbsp;·&nbsp; ${fmt(c.carrierOperation?.carrierOperationDesc)}</div>
         <div style="margin-top:10px;">
           ${c.allowedToOperate==='Y'
-            ?'<span class="badge badge-green">✓ Authorized to Operate</span>'
-            :'<span class="badge badge-red">✗ Not Authorized to Operate</span>'}
+            ? '<span class="badge badge-green">✓ Authorized to Operate</span>'
+            : '<span class="badge badge-red">✗ Not Authorized</span>'}
           &nbsp;
-          <span class="badge ${mcs150Status==='Outdated'?'badge-red':'badge-gray'}">MCS-150 ${mcs150Status} ${mcs150Age !== '—' ? `(${mcs150Age} old)` : ''}</span>
+          <span class="badge ${mcs150Status==='Outdated'?'badge-red':'badge-gray'}">MCS-150 ${mcs150Status}${mcs150Age!=='—'?` (${mcs150Age} old)`:''}</span>
         </div>
       </div>
       <div style="text-align:right;">
@@ -660,67 +797,79 @@ async function loadSnapshot(dot, name) {
       </div>
     </div>
 
+    ${!currentUser ? `
+    <!-- Promo bar for guests -->
+    <div class="promo-bar">
+      <p>🔒 <strong>Sign up free</strong> to unlock owner name, phone, email & full insurance records for this carrier.</p>
+      <div class="promo-bar-btns">
+        <button class="btn-outline" onclick="showAuthModal('login')"  style="border-color:white;color:white;font-size:13px;padding:7px 14px;">Sign In</button>
+        <button class="btn-select"  onclick="showAuthModal('signup')" style="font-size:13px;padding:7px 14px;">Sign Up Free</button>
+      </div>
+    </div>` : ''}
+
+    <!-- Contact Information -->
     <div class="section">
       <div class="section-title">Contact Information</div>
       <div class="grid-3">
         <div class="stat-box">
-          <div class="stat-label">Owner Name</div>
-          <div class="stat-val sm">${fmt(ownerInfo?.ownerName || c.telephone, '—')}</div>
+          <div class="stat-label">Owner / Officer</div>
+          <div class="stat-val sm">${protect(fmt(ownerName, 'Not listed'), 'John D. Smith')}</div>
           <div class="stat-sub">Primary contact from MCS-150</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Phone</div>
-          <div class="stat-val sm">${fmt(ownerInfo?.phone || c.telephone, '—')}</div>
+          <div class="stat-val sm">${protect(fmt(phone, 'Not listed'), '(555) 000-0000')}</div>
           <div class="stat-sub">Main business phone</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Email</div>
-          <div class="stat-val sm" style="font-size:13px;">${fmt(ownerInfo?.email, '—')}</div>
+          <div class="stat-val sm" style="font-size:13px;">${protect(fmt(email, 'Not listed'), 'contact@carrier.com')}</div>
           <div class="stat-sub">Primary email address</div>
         </div>
       </div>
     </div>
 
+    <!-- Business Info -->
     <div class="section">
       <div class="section-title">Business Information</div>
       <div class="grid-3" style="margin-bottom:14px;">
         <div class="stat-box">
           <div class="stat-label">Company Status</div>
-          <div class="stat-val sm green">${c.allowedToOperate==='Y'?'Authorized to Operate':'Not Authorized'}</div>
+          <div class="stat-val sm ${c.allowedToOperate==='Y'?'green':'red'}">${c.allowedToOperate==='Y'?'Authorized to Operate':'Not Authorized'}</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">MCS-150 Form Date</div>
-          <div class="stat-val sm">${mcs150FormattedDate}</div>
-          <div class="stat-sub">${mcs150Age !== '—' ? `Last updated ${mcs150Age} ago` : '—'}</div>
+          <div class="stat-val sm">${mcs150Formatted}</div>
+          <div class="stat-sub">${mcs150Age!=='—' ? `Last updated ${mcs150Age} ago` : '—'}</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Registered Address</div>
-          <div class="stat-val sm" style="font-size:13px;line-height:1.4;">
-            ${carrierData 
-              ? `${fmt(carrierData.carrier_mailing_street || carrierData.phy_street, '—')}<br/>
-                 ${fmt(carrierData.carrier_mailing_city || carrierData.phy_city, '—')}, 
-                 ${fmt(carrierData.carrier_mailing_state || carrierData.phy_state, '—')} 
-                 ${fmt(carrierData.carrier_mailing_zip || carrierData.phy_zip, '—')}`
+          <div class="stat-val sm" style="font-size:13px;line-height:1.5;">
+            ${socrata
+              ? `${fmt(socrata.carrier_mailing_street||socrata.phy_street,'—')}<br>
+                 ${fmt(socrata.carrier_mailing_city||socrata.phy_city,'—')}, ${fmt(socrata.carrier_mailing_state||socrata.phy_state,'—')} ${fmt(socrata.carrier_mailing_zip||socrata.phy_zip,'—')}`
               : '—'}
           </div>
         </div>
       </div>
     </div>
 
+    <!-- Key Metrics -->
     <div class="section">
       <div class="section-title">Key Metrics</div>
       <div class="grid-4">
-        <div class="stat-box"><div class="stat-label">Common Active Duration</div><div class="stat-val">${mcs150Age}</div></div>
-        <div class="stat-box"><div class="stat-label">Power Units</div><div class="stat-val">${fmt(ownerInfo?.powerUnits || c.totalPowerUnits,'—')}</div></div>
-        <div class="stat-box"><div class="stat-label">Own Trailers</div><div class="stat-val">${fmt(ownerInfo?.ownTrailers,'—')}</div></div>
-        <div class="stat-box"><div class="stat-label">Total Drivers</div><div class="stat-val">${fmt(ownerInfo?.totalDrivers || c.totalDrivers,'—')}</div></div>
+        <div class="stat-box"><div class="stat-label">In Business</div><div class="stat-val">${mcs150Age}</div></div>
+        <div class="stat-box"><div class="stat-label">Power Units</div><div class="stat-val">${fmt(powerUnits,'—')}</div></div>
+        <div class="stat-box"><div class="stat-label">Own Trailers</div><div class="stat-val">${fmt(ownTrailers,'—')}</div></div>
+        <div class="stat-box"><div class="stat-label">Total Drivers</div><div class="stat-val">${fmt(totalDrivers,'—')}</div></div>
         <div class="stat-box"><div class="stat-label">Total Crashes</div><div class="stat-val ${c.crashTotal>0?'red':'green'}">${fmt(c.crashTotal,0)}</div></div>
         <div class="stat-box"><div class="stat-label">Fatal Crashes</div><div class="stat-val ${c.fatalCrash>0?'red':'green'}">${fmt(c.fatalCrash,0)}</div></div>
         <div class="stat-box"><div class="stat-label">Hazmat Inspections</div><div class="stat-val">${fmt(c.hazmatInsp,0)}</div></div>
-        <div class="stat-box"><div class="stat-label">EIN</div><div class="stat-val sm">Not available</div></div>
+        <div class="stat-box"><div class="stat-label">Safety Rating</div><div class="stat-val sm">${fmt(c.safetyRating,'Not Rated')}</div></div>
       </div>
     </div>
 
+    <!-- Authority -->
     <div class="section">
       <div class="section-title">Authority Status</div>
       <div class="grid-3" style="margin-bottom:14px;">
@@ -743,57 +892,55 @@ async function loadSnapshot(dot, name) {
       </table>
     </div>
 
+    <!-- MC / Docket -->
     <div class="section">
       <div class="section-title">MC / Docket Numbers</div>
       <div class="tag-list">${docketTags}</div>
     </div>
 
+    <!-- Insurance Summary (always visible) + Detail (gated) -->
     <div class="section">
       <div class="section-title">Insurance Summary</div>
       <div class="grid-3" style="margin-bottom:14px;">
         <div class="stat-box">
           <div class="stat-label">BIPD Required</div>
-          <div class="stat-val sm">${c.bipdInsuranceRequired==='Y'?formatMoney(c.bipdRequiredAmount,'k'):'No'}</div>
+          <div class="stat-val sm">${c.bipdInsuranceRequired==='Y' ? formatMoney(c.bipdRequiredAmount,'k') : 'No'}</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">BIPD On File</div>
-          <div class="stat-val sm ${parseInt(c.bipdInsuranceOnFile||0)>0?'green':'red'}">${c.bipdInsuranceOnFile?formatMoney(c.bipdInsuranceOnFile,'k'):'—'}</div>
+          <div class="stat-val sm ${parseInt(c.bipdInsuranceOnFile||0)>0?'green':'red'}">${c.bipdInsuranceOnFile ? formatMoney(c.bipdInsuranceOnFile,'k') : '—'}</div>
         </div>
         <div class="stat-box">
-          <div class="stat-label">Bond On File</div>
-          <div class="stat-val sm">${c.bondInsuranceOnFile?formatMoney(c.bondInsuranceOnFile):'—'}</div>
+          <div class="stat-label">Insurance Status</div>
+          <div class="stat-val sm ${c.bipdInsuranceRequired==='Y' && parseInt(c.bipdInsuranceOnFile||0)>=parseInt(c.bipdRequiredAmount||0)?'green':'red'}">
+            ${c.bipdInsuranceRequired==='Y' ? (parseInt(c.bipdInsuranceOnFile||0)>=parseInt(c.bipdRequiredAmount||0) ? 'Meets Limits' : 'Below Limits') : 'No Requirement'}
+          </div>
         </div>
       </div>
-      <div class="grid-2" style="gap:12px; margin-bottom:14px;">
-        <div class="stat-box" style="background:#f8fafc; border-color:var(--border);">
-          <div class="stat-label">Insurance Match</div>
-          <div class="stat-val sm ${c.bipdInsuranceRequired==='Y' && parseInt(c.bipdInsuranceOnFile||0) >= parseInt(c.bipdRequiredAmount||0) ? 'green' : 'red'}">${c.bipdInsuranceRequired==='Y' ? (parseInt(c.bipdInsuranceOnFile||0) >= parseInt(c.bipdRequiredAmount||0) ? 'Meets required limits' : 'Below required limits') : 'No requirement'}</div>
-        </div>
-        <div class="stat-box" style="background:#f8fafc; border-color:var(--border);">
-          <div class="stat-label">Insurance Records</div>
-          <div class="stat-val sm ${insurance.length>0 ? 'green' : 'gray'}">${insurance.length>0 ? insurance.length + ' active entries' : 'No records found'}</div>
-        </div>
-      </div>
+      ${insuranceGate || `
       <table class="data-table">
         <thead><tr><th>Form/Type</th><th>Insurer Code</th><th>Coverage</th><th>Effective Date</th><th>Status</th></tr></thead>
-        <tbody>${insRows}</tbody>
-      </table>
+        <tbody><tr><td colspan="5" style="color:var(--muted);text-align:center;padding:16px;">Insurance filing detail not available via public API</td></tr></tbody>
+      </table>`}
     </div>
 
+    <!-- OOS Rates -->
     <div class="section">
       <div class="section-title">Out-of-Service Rates</div>
       <div class="grid-3">
-        ${oosBox('Driver OOS Rate', c.driverOosRate, driverAvg, c.driverInsp)}
+        ${oosBox('Driver OOS Rate',  c.driverOosRate,  driverAvg,  c.driverInsp)}
         ${oosBox('Vehicle OOS Rate', c.vehicleOosRate, vehicleAvg, c.vehicleInsp)}
-        ${oosBox('Hazmat OOS Rate', c.hazmatOosRate, hazmatAvg, c.hazmatInsp)}
+        ${oosBox('Hazmat OOS Rate',  c.hazmatOosRate,  hazmatAvg,  c.hazmatInsp)}
       </div>
     </div>
 
+    <!-- CSA BASIC -->
     <div class="section">
       <div class="section-title">CSA BASIC Scores</div>
       <div style="display:flex;flex-wrap:wrap;gap:12px;">${basicCards}</div>
     </div>
 
+    <!-- Operations & Cargo -->
     <div class="section">
       <div class="section-title">Operation Classification</div>
       <div class="tag-list" style="margin-bottom:16px;">${opsTags}</div>
@@ -801,6 +948,7 @@ async function loadSnapshot(dot, name) {
       <div class="tag-list">${cargoTags}</div>
     </div>
 
+    <!-- Physical Address -->
     <div class="section">
       <div class="section-title">Physical Address</div>
       <div class="stat-box" style="display:inline-block;">
@@ -810,10 +958,101 @@ async function loadSnapshot(dot, name) {
     </div>
   `;
 
-  document.getElementById("snapshotLoading").style.display = "none";
-  document.getElementById("snapshotContent").style.display = "block";
+  document.getElementById('snapshotLoading').style.display  = 'none';
+  document.getElementById('snapshotContent').style.display  = 'block';
 }
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function oosBox(label, rate, avg, insp) {
+  const color = oosColor(rate, avg);
+  const barW  = rate != null ? Math.min((rate / Math.max(avg * 2, 1)) * 100, 100) : 0;
+  return `<div class="stat-box">
+    <div class="stat-label">${label}</div>
+    <div class="stat-val ${color==='danger'?'red':color==='warn'?'orange':'green'}">${pct(rate)}</div>
+    <div class="oos-bar-wrap"><div class="oos-bar ${color}" style="width:${barW}%"></div></div>
+    <div class="stat-sub">Natl avg: ${avg}% · ${insp??0} inspections</div>
+  </div>`;
+}
+function parseSocrataDate(value) {
+  if (!value) return null;
+  const c = value.toString().replace(/\D/g,'');
+  if (c.length < 8) return null;
+  const d = new Date(`${c.slice(0,4)}-${c.slice(4,6)}-${c.slice(6,8)}T00:00:00Z`);
+  return isNaN(d.getTime()) ? null : d;
+}
+function humanDuration(from) {
+  if (!from) return '—';
+  const ms = new Date() - (typeof from === 'string' ? new Date(from) : from);
+  if (ms < 0) return '0 days';
+  const days = Math.floor(ms / 86400000);
+  if (days < 30) return `${days}d`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo`;
+  const years = Math.floor(months / 12), rem = months % 12;
+  return rem ? `${years}y ${rem}mo` : `${years}y`;
+}
+function fmt(v, fallback) { return (v != null && v !== '') ? v : (fallback !== undefined ? fallback : '—'); }
+function formatMoney(v, suffix='') { const n = parseFloat(v); return Number.isFinite(n) ? '$'+n.toLocaleString()+suffix : '—'; }
+function pct(v) { return v != null ? v.toFixed(1)+'%' : '—'; }
+function oosColor(rate, avg) { if (rate==null) return 'safe'; if (rate > avg*1.5) return 'danger'; if (rate > avg) return 'warn'; return 'safe'; }
+function authLabel(code) { return {A:'Active',I:'Inactive',N:'None'}[code] || code || '—'; }
+function badgeClass(code) { return code==='A' ? 'badge-green' : code==='I' ? 'badge-red' : 'badge-gray'; }
+function dateStr(s) {
+  if (!s) return '—';
+  try { return new Date(s).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); } catch { return s; }
+}
+
+function setLoading(show, text) {
+  document.getElementById('loadingMsg').style.display = show ? 'flex' : 'none';
+  if (text) document.getElementById('loadingText').textContent = text;
+}
+function goBack() {
+  document.getElementById('snapshotSection').style.display = 'none';
+  document.getElementById('resultsCard').style.display     = 'block';
+}
+function toggleSearchMode(mode) {
+  const isBasic = mode === 'basic';
+  document.getElementById('basicSearchPanel').style.display    = isBasic ? 'block' : 'none';
+  document.getElementById('advancedSearchPanel').style.display = isBasic ? 'none'  : 'block';
+  document.getElementById('basicSearchBtn').style.background    = isBasic ? 'var(--navy)'   : 'var(--border)';
+  document.getElementById('basicSearchBtn').style.color         = isBasic ? 'white'          : 'var(--text)';
+  document.getElementById('advancedSearchBtn').style.background = isBasic ? 'var(--border)'  : 'var(--navy)';
+  document.getElementById('advancedSearchBtn').style.color      = isBasic ? 'var(--text)'    : 'white';
+}
+function clearAdvancedFilters() {
+  ['advCompanyName','advStatus','advState','advCity','advMinUnits','advMaxUnits','advAuthority']
+    .forEach(id => { document.getElementById(id).value = ''; });
+}
+function resetSearch() {
+  document.getElementById('searchInput').value = '';
+  clearAdvancedFilters();
+  document.getElementById('resultsCard').style.display    = 'none';
+  document.getElementById('snapshotSection').style.display = 'none';
+  toggleSearchMode('basic');
+  allCarrierResults = [];
+}
+
+function exportToCSV() {
+  if (allCarrierResults.length === 0) { alert('No results to export.'); return; }
+  const headers = ['Legal Name','DOT Number','MC/Docket','Status','City','State','Power Units','Phone','MCS-150 Date'];
+  const rows = allCarrierResults.map(c => [
+    fmt(c.legal_name), fmt(c.dot_number), fmt(c.docket1),
+    c.status_code==='A'?'Active':'Inactive',
+    fmt(c.phy_city), fmt(c.phy_state),
+    fmt(c.powerUnits||c.total_power_units),
+    fmt(c.telephone), fmt(c.mcs150_date)
+  ]);
+  const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a   = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' })),
+    download: `carrier-search-${new Date().toISOString().split('T')[0]}.csv`,
+    style: 'visibility:hidden'
+  });
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+initSupabase();
 </script>
 </body>
 </html>
-
