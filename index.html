@@ -710,14 +710,37 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
   const ownTrailers = parseInt(socrata?.owntrail) || null;
   const totalDrivers = parseInt(socrata?.total_drivers || c.totalDrivers) || null;
 
+  // Derive operating status — FMCSA allowedToOperate can say 'Y' even when authority is pending
+  const hasPendingAuth = authorityArr.some(a =>
+    a.applicationStatus === 'P' || a.authorityStatus === 'P'
+  );
+  // New carrier: has docket from Socrata but no active authority on record = pending
+  const socrataHasDocket = socrata && (socrata.docket1prefix || socrata.docket1);
+  const hasActiveAuthority = authorityArr.some(a => a.authorityStatus === 'A');
+  const isPendingNewCarrier = socrataHasDocket && !hasActiveAuthority && authorityArr.length === 0;
+
+  // Derive common/contract/broker status from authority array (fallback to carrier fields)
+  const getAuthStatus = (type) => {
+    const match = authorityArr.find(a =>
+      (a.operatingAuthorityType || '').toLowerCase().includes(type.toLowerCase())
+    );
+    if (match) return match.authorityStatus;
+    if (type === 'common')   return c.commonAuthorityStatus;
+    if (type === 'contract') return c.contractAuthorityStatus;
+    if (type === 'broker')   return c.brokerAuthorityStatus;
+    return 'N';
+  };
+
   // Alert banners
   const alerts = [];
   if (c.allowedToOperate !== 'Y')
     alerts.push({ type: 'danger',  msg: '⚠️ This carrier is NOT authorized to operate.' });
   if (c.commonAuthorityStatus === 'I')
     alerts.push({ type: 'danger',  msg: '⚠️ Common authority is Inactive.' });
-  if (authorityArr.some(a => a.applicationStatus === 'P'))
+  if (hasPendingAuth)
     alerts.push({ type: 'warning', msg: '⚠️ This carrier has a pending authority revocation.' });
+  if (isPendingNewCarrier)
+    alerts.push({ type: 'warning', msg: '⚠️ Authority application pending — carrier is not yet authorized to operate.' });
 
   document.getElementById('alertBanners').innerHTML =
     alerts.map(a => `<div class="alert-banner alert-${a.type}">${a.msg}</div>`).join('');
@@ -732,9 +755,18 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
     ? `${socrata.docket1prefix || ''}${socrata.docket1 || ''}`
     : docketsArr.map(d => `${d.prefix||''}${d.docketNumber}`).join(', ');
   const docketStr  = mcNumber || '—';
-  const docketTags = docketsArr.length > 0
-    ? docketsArr.map(d => `<span class="tag">${d.prefix||''}${d.docketNumber}</span>`).join('')
-    : '<span style="color:var(--muted);font-size:13px;">No docket numbers on file</span>';
+
+  // Build docket tags — prefer FMCSA array, fall back to Socrata fields
+  let docketTags;
+  if (docketsArr.length > 0) {
+    docketTags = docketsArr.map(d => `<span class="tag">${d.prefix||''}${d.docketNumber}</span>`).join('');
+  } else if (socrataHasDocket) {
+    const mc = `${socrata.docket1prefix || ''}${socrata.docket1 || ''}`;
+    const mc2 = socrata.docket2 ? `${socrata.docket2prefix || ''}${socrata.docket2}` : '';
+    docketTags = `<span class="tag">${mc}</span>${mc2 ? ` <span class="tag">${mc2}</span>` : ''}`;
+  } else {
+    docketTags = '<span style="color:var(--muted);font-size:13px;">No docket numbers on file</span>';
+  }
   const cargoTags  = cargoArr.length > 0
     ? cargoArr.map(g => `<span class="tag">${g.cargoClassDesc}</span>`).join('')
     : '<span style="color:var(--muted);font-size:13px;">No cargo data</span>';
@@ -742,14 +774,27 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
     ? opsArr.map(o => `<span class="tag">${o.operationClassDesc}</span>`).join('')
     : '<span style="color:var(--muted);font-size:13px;">No data</span>';
 
-  const authRows = authorityArr.length > 0
-    ? authorityArr.map(a => `<tr>
+  // Authority rows — use FMCSA array, synthesize from Socrata if empty
+  let authRows;
+  if (authorityArr.length > 0) {
+    authRows = authorityArr.map(a => `<tr>
         <td>${fmt(a.operatingAuthorityType)}</td>
         <td><span class="badge ${badgeClass(a.authorityStatus)}">${authLabel(a.authorityStatus)}</span></td>
         <td>${dateStr(a.grantedDate)}</td>
         <td>${a.applicationStatus==='P' ? '<span class="badge badge-orange">Pending Revocation</span>' : fmt(a.applicationStatus)}</td>
-      </tr>`).join('')
-    : '<tr><td colspan="4" style="color:var(--muted);text-align:center;padding:16px;">No authority records</td></tr>';
+      </tr>`).join('');
+  } else if (isPendingNewCarrier) {
+    // New carrier — synthesize a pending row from Socrata docket info
+    const mcStr = `${socrata.docket1prefix || ''}${socrata.docket1 || ''}`;
+    authRows = `<tr>
+      <td>Property (${mcStr})</td>
+      <td><span class="badge badge-orange">Pending</span></td>
+      <td>—</td>
+      <td><span class="badge badge-orange">Application Pending</span></td>
+    </tr>`;
+  } else {
+    authRows = '<tr><td colspan="4" style="color:var(--muted);text-align:center;padding:16px;">No authority records</td></tr>';
+  }
 
   // OOS
   const driverAvg  = parseFloat(c.driverOosRateNationalAverage)  || 5.51;
@@ -782,9 +827,11 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
         <div class="snap-name">${fmt(c.legalName)}${c.dbaName ? ` <span style="font-weight:400;font-size:15px;color:var(--muted);">dba ${c.dbaName}</span>` : ''}</div>
         <div class="snap-meta">DOT# ${c.dotNumber} &nbsp;·&nbsp; MC/FF: ${docketStr} &nbsp;·&nbsp; ${fmt(c.carrierOperation?.carrierOperationDesc)}</div>
         <div style="margin-top:10px;">
-          ${c.allowedToOperate==='Y'
-            ? '<span class="badge badge-green">✓ Authorized to Operate</span>'
-            : '<span class="badge badge-red">✗ Not Authorized</span>'}
+          ${c.allowedToOperate !== 'Y'
+            ? '<span class="badge badge-red">✗ Not Authorized to Operate</span>'
+            : isPendingNewCarrier || hasPendingAuth
+              ? '<span class="badge badge-orange">⏳ Authorization Pending</span>'
+              : '<span class="badge badge-green">✓ Authorized to Operate</span>'}
           &nbsp;
           <span class="badge ${mcs150Status==='Outdated'?'badge-red':'badge-gray'}">MCS-150 ${mcs150Status}${mcs150Age!=='—'?` (${mcs150Age} old)`:''}</span>
         </div>
@@ -875,7 +922,9 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
       <div class="grid-3" style="margin-bottom:14px;">
         <div class="stat-box">
           <div class="stat-label">Common Authority</div>
-          <div class="stat-val sm ${c.commonAuthorityStatus==='A'?'green':'red'}">${authLabel(c.commonAuthorityStatus)}</div>
+          <div class="stat-val sm ${isPendingNewCarrier ? 'orange' : c.commonAuthorityStatus==='A' ? 'green' : 'red'}">
+            ${isPendingNewCarrier ? 'Pending' : authLabel(c.commonAuthorityStatus)}
+          </div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Contract Authority</div>
