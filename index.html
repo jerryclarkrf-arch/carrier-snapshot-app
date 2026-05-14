@@ -978,14 +978,27 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
     : '<span style="color:var(--muted);font-size:13px;">No data</span>';
 
   // Authority rows — use FMCSA array, synthesize from Socrata if empty
+  // Sort: active records first, then by grantedDate descending
+  const sortedAuthority = [...authorityArr].sort((a, b) => {
+    if (a.authorityStatus === 'A' && b.authorityStatus !== 'A') return -1;
+    if (b.authorityStatus === 'A' && a.authorityStatus !== 'A') return  1;
+    return new Date(b.grantedDate||0) - new Date(a.grantedDate||0);
+  });
   let authRows;
-  if (authorityArr.length > 0) {
-    authRows = authorityArr.map(a => `<tr>
+  if (sortedAuthority.length > 0) {
+    authRows = sortedAuthority.map(a => {
+      const gd = a.grantedDate ? new Date(a.grantedDate) : null;
+      const age = (gd && !isNaN(gd) && a.authorityStatus === 'A') ? ` <span style="font-size:11px;color:var(--green);">(${humanDuration(gd)})</span>` : '';
+      const appStatus = a.applicationStatus === 'P'
+        ? '<span class="badge badge-orange">Pending Revocation</span>'
+        : fmt(a.applicationStatus);
+      return `<tr>
         <td>${fmt(a.operatingAuthorityType)}</td>
         <td><span class="badge ${badgeClass(a.authorityStatus)}">${authLabel(a.authorityStatus)}</span></td>
-        <td>${dateStr(a.grantedDate)}</td>
-        <td>${a.applicationStatus==='P' ? '<span class="badge badge-orange">Pending Revocation</span>' : fmt(a.applicationStatus)}</td>
-      </tr>`).join('');
+        <td>${dateStr(a.grantedDate)}${age}</td>
+        <td>${appStatus}</td>
+      </tr>`;
+    }).join('');
   } else if (isPendingNewCarrier) {
     // New carrier — synthesize a pending row from Socrata docket info
     const mcStr = `${socrata.docket1prefix || ''}${socrata.docket1 || ''}`;
@@ -1125,16 +1138,22 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
       <div class="grid-3" style="margin-bottom:14px;">
         ${['common','contract','broker'].map(type => {
           const statusCode = { common: c.commonAuthorityStatus, contract: c.contractAuthorityStatus, broker: c.brokerAuthorityStatus }[type];
-          const authEntry = authorityArr.find(a => (a.operatingAuthorityType||'').toLowerCase().includes(type));
-          const grantDate = authEntry?.grantedDate ? new Date(authEntry.grantedDate) : null;
-          const grantAge  = (grantDate && statusCode === 'A') ? humanDuration(grantDate) : null;
-          const pending   = isPendingNewCarrier && type === 'common';
-          const colorCls  = pending ? 'orange' : statusCode === 'A' ? 'green' : statusCode === 'I' ? 'red' : '';
-          const label     = pending ? 'Pending' : authLabel(statusCode);
+          // Prefer the Active record; fall back to the most recent record by grantedDate
+          const typeEntries = authorityArr.filter(a => (a.operatingAuthorityType||'').toLowerCase().includes(type));
+          const activeEntry = typeEntries.find(a => a.authorityStatus === 'A');
+          const authEntry   = activeEntry || typeEntries.sort((a,b) => new Date(b.grantedDate||0) - new Date(a.grantedDate||0))[0];
+          // grantedDate = ORIGINAL grant date; persists through revocation/reinstatement (per FMCSA rules)
+          const grantDate   = authEntry?.grantedDate ? new Date(authEntry.grantedDate) : null;
+          const grantAge    = (grantDate && !isNaN(grantDate) && statusCode === 'A') ? humanDuration(grantDate) : null;
+          const lastActive  = (grantDate && !isNaN(grantDate) && statusCode === 'I') ? dateStr(grantDate) : null;
+          const pending     = isPendingNewCarrier && type === 'common';
+          const colorCls    = pending ? 'orange' : statusCode === 'A' ? 'green' : statusCode === 'I' ? 'red' : '';
+          const label       = pending ? 'Pending' : authLabel(statusCode);
           return `<div class="stat-box">
             <div class="stat-label">${type.charAt(0).toUpperCase()+type.slice(1)} Authority</div>
             <div class="stat-val sm ${colorCls}">${label}</div>
-            ${grantAge ? `<div class="stat-sub">${grantAge}</div>` : ''}
+            ${grantAge   ? `<div class="stat-sub" style="color:var(--green);">${grantAge}</div>` : ''}
+            ${lastActive ? `<div class="stat-sub" style="color:var(--muted);">Since ${lastActive}</div>` : ''}
           </div>`;
         }).join('')}
       </div>
