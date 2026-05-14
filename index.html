@@ -1023,6 +1023,9 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
   const docketsArr  = dockets?.content?.docketNumbers || [];
   const authorityArr  = authority?.content?.authority || [];
   const insuranceArr  = insurance?.content?.insuranceList || [];
+  // DEBUG — remove after confirming field names
+  console.log('[CS] authorityArr:', JSON.stringify(authorityArr));
+  console.log('[CS] insuranceArr:', JSON.stringify(insuranceArr));
 
   // Owner info from Socrata
   const ownerName  = socrata?.company_officer_1 || null;
@@ -1110,18 +1113,31 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
   const addedFormatted = addedDate ? dateStr(addedDate) : '—';
 
   // MC authority grant date — shown prominently in header like CarrierChk
-  // Prefer active Common authority; fall back to any active; then any with grantedDate
+  // FMCSA API uses different field names across versions; try all known variants
+  function extractGrantDate(entry) {
+    if (!entry) return null;
+    const raw = entry.grantedDate || entry.authorityGrantDate || entry.dateGranted
+              || entry.effectiveDate || entry.authGrantDate || null;
+    if (!raw) return null;
+    const d = new Date(raw);
+    return !isNaN(d) ? d : null;
+  }
+  // Prefer active Common authority; fall back to any active; then any record
   const activeCommonEntry  = authorityArr.find(a =>
     a.operatingAuthorityType?.toLowerCase().includes('common') && a.authorityStatus === 'A'
   );
   const anyActiveEntry = authorityArr.find(a => a.authorityStatus === 'A');
-  const anyEntry       = authorityArr.slice().sort((a,b) => new Date(b.grantedDate||0) - new Date(a.grantedDate||0))[0];
-  const headerAuthEntry = activeCommonEntry || anyActiveEntry || anyEntry;
-  const mcGrantDate     = headerAuthEntry?.grantedDate ? new Date(headerAuthEntry.grantedDate) : null;
-  const mcGrantValid    = mcGrantDate && !isNaN(mcGrantDate);
-  const mcGrantAge      = mcGrantValid ? humanDuration(mcGrantDate) : null;
+  const anyEntry       = authorityArr.slice().sort((a,b) => {
+    return (extractGrantDate(b)||0) - (extractGrantDate(a)||0);
+  })[0];
+  const headerAuthEntry  = activeCommonEntry || anyActiveEntry || anyEntry;
+  const mcGrantDate      = extractGrantDate(headerAuthEntry);
+  const mcGrantValid     = mcGrantDate && !isNaN(mcGrantDate);
+  const mcGrantAge       = mcGrantValid ? humanDuration(mcGrantDate) : null;
   const mcGrantFormatted = mcGrantValid ? dateStr(mcGrantDate) : null;
-  const mcGrantTypeLabel = (headerAuthEntry?.operatingAuthorityType || 'MC').replace(/Authority/i,'').trim() || 'MC';
+  // Label: "Common" / "Contract" / "Broker" / "MC"
+  const mcGrantTypeLabel = (headerAuthEntry?.operatingAuthorityType || '')
+    .replace(/Authority/i,'').trim() || (hasMcDocket ? 'MC' : 'Authority');
 
   const mcNumber = socrata && (socrata.docket1prefix || socrata.docket1)
     ? `${socrata.docket1prefix || ''}${socrata.docket1 || ''}`
@@ -1216,17 +1232,17 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
           &nbsp;
           <span class="badge ${mcs150Status==='Outdated'?'badge-red':'badge-gray'}">MCS-150 ${mcs150Status}${mcs150Age!=='—'?` (${mcs150Age} old)`:''}</span>
         </div>
-        ${hasActiveMcAuth && mcGrantAge ? `
+        ${hasActiveMcAuth ? `
         <div style="margin-top:8px;font-size:13px;color:var(--green);font-weight:500;">
-          ✓ ${mcGrantTypeLabel} Authority: Active for <strong>${mcGrantAge}</strong> · since ${mcGrantFormatted}
+          ✓ ${mcGrantTypeLabel} Authority: Active${mcGrantAge ? ` for <strong>${mcGrantAge}</strong> · since ${mcGrantFormatted}` : ''}
         </div>` : ''}
         ${isPendingNewCarrier ? `
         <div style="margin-top:8px;font-size:13px;color:var(--orange);font-weight:500;">
           ⏳ MC Authority application pending — not yet authorized to operate for hire
         </div>` : ''}
-        ${isInactiveAuthority && mcGrantFormatted ? `
+        ${isInactiveAuthority ? `
         <div style="margin-top:8px;font-size:13px;color:var(--red);font-weight:500;">
-          ✗ MC Authority inactive — originally granted ${mcGrantFormatted}
+          ✗ MC Authority inactive${mcGrantFormatted ? ` — originally granted ${mcGrantFormatted}` : ''}
         </div>` : ''}
       </div>
       <div style="text-align:right;">
