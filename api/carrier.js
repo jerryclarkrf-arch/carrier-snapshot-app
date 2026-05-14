@@ -42,7 +42,7 @@ export default async function handler(req, res) {
 
   const d = dot.trim();
 
-  const [main, basics, cargo, ops, dockets, authority, oos, socrata] = await Promise.all([
+  const [main, basics, cargo, ops, dockets, authority, oos, socrata, insurance] = await Promise.all([
     fmcsa(`/${d}`, FMCSA_KEY),
     fmcsa(`/${d}/basics`, FMCSA_KEY),
     fmcsa(`/${d}/cargo-carried`, FMCSA_KEY),
@@ -51,6 +51,7 @@ export default async function handler(req, res) {
     fmcsa(`/${d}/authority`, FMCSA_KEY),
     fmcsa(`/${d}/oos`, FMCSA_KEY),
     getSocrata(d),
+    fmcsa(`/${d}/insurance`, FMCSA_KEY),
   ]);
 
   if (!main || !main.content) {
@@ -59,5 +60,5 @@ export default async function handler(req, res) {
 
   // Cache for 1 hour at CDN edge, revalidate in background
   res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate=600');
-  return res.status(200).json({ main, basics, cargo, ops, dockets, authority, oos, socrata });
+  return res.status(200).json({ main, basics, cargo, ops, dockets, authority, oos, socrata, insurance });
 }

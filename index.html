@@ -1015,13 +1015,14 @@ async function loadSnapshot(dot) {
   renderSnapshot(payload);
 }
 
-function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, socrata }) {
+function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, socrata, insurance }) {
   const c        = main.content.carrier;
   const basicsArr   = basics?.content?.basics || [];
   const cargoArr    = cargo?.content?.cargoCarried || [];
   const opsArr      = ops?.content?.operationClassification || [];
   const docketsArr  = dockets?.content?.docketNumbers || [];
-  const authorityArr = authority?.content?.authority || [];
+  const authorityArr  = authority?.content?.authority || [];
+  const insuranceArr  = insurance?.content?.insuranceList || [];
 
   // Owner info from Socrata
   const ownerName  = socrata?.company_officer_1 || null;
@@ -1107,6 +1108,20 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
   const addedDate     = socrata?.add_date ? parseSocrataDate(socrata.add_date) : null;
   const addedAge      = addedDate ? humanDuration(addedDate) : '—';
   const addedFormatted = addedDate ? dateStr(addedDate) : '—';
+
+  // MC authority grant date — shown prominently in header like CarrierChk
+  // Prefer active Common authority; fall back to any active; then any with grantedDate
+  const activeCommonEntry  = authorityArr.find(a =>
+    a.operatingAuthorityType?.toLowerCase().includes('common') && a.authorityStatus === 'A'
+  );
+  const anyActiveEntry = authorityArr.find(a => a.authorityStatus === 'A');
+  const anyEntry       = authorityArr.slice().sort((a,b) => new Date(b.grantedDate||0) - new Date(a.grantedDate||0))[0];
+  const headerAuthEntry = activeCommonEntry || anyActiveEntry || anyEntry;
+  const mcGrantDate     = headerAuthEntry?.grantedDate ? new Date(headerAuthEntry.grantedDate) : null;
+  const mcGrantValid    = mcGrantDate && !isNaN(mcGrantDate);
+  const mcGrantAge      = mcGrantValid ? humanDuration(mcGrantDate) : null;
+  const mcGrantFormatted = mcGrantValid ? dateStr(mcGrantDate) : null;
+  const mcGrantTypeLabel = (headerAuthEntry?.operatingAuthorityType || 'MC').replace(/Authority/i,'').trim() || 'MC';
 
   const mcNumber = socrata && (socrata.docket1prefix || socrata.docket1)
     ? `${socrata.docket1prefix || ''}${socrata.docket1 || ''}`
@@ -1201,6 +1216,18 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
           &nbsp;
           <span class="badge ${mcs150Status==='Outdated'?'badge-red':'badge-gray'}">MCS-150 ${mcs150Status}${mcs150Age!=='—'?` (${mcs150Age} old)`:''}</span>
         </div>
+        ${hasActiveMcAuth && mcGrantAge ? `
+        <div style="margin-top:8px;font-size:13px;color:var(--green);font-weight:500;">
+          ✓ ${mcGrantTypeLabel} Authority: Active for <strong>${mcGrantAge}</strong> · since ${mcGrantFormatted}
+        </div>` : ''}
+        ${isPendingNewCarrier ? `
+        <div style="margin-top:8px;font-size:13px;color:var(--orange);font-weight:500;">
+          ⏳ MC Authority application pending — not yet authorized to operate for hire
+        </div>` : ''}
+        ${isInactiveAuthority && mcGrantFormatted ? `
+        <div style="margin-top:8px;font-size:13px;color:var(--red);font-weight:500;">
+          ✗ MC Authority inactive — originally granted ${mcGrantFormatted}
+        </div>` : ''}
       </div>
       <div style="text-align:right;">
         <div style="font-size:12px;color:var(--muted);">Entity Type</div>
@@ -1273,7 +1300,7 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
     <div class="section">
       <div class="section-title">Key Metrics</div>
       <div class="grid-4">
-        <div class="stat-box"><div class="stat-label">Added</div><div class="stat-val">${addedAge}</div><div class="stat-sub">${addedFormatted}</div></div>
+        <div class="stat-box"><div class="stat-label">DOT Registered</div><div class="stat-val">${addedAge}</div><div class="stat-sub">${addedFormatted}</div></div>
         <div class="stat-box"><div class="stat-label">Power Units</div><div class="stat-val">${fmt(powerUnits,'—')}</div></div>
         <div class="stat-box"><div class="stat-label">Own Trailers</div><div class="stat-val">${fmt(ownTrailers,'—')}</div></div>
         <div class="stat-box"><div class="stat-label">Total Drivers</div><div class="stat-val">${fmt(totalDrivers,'—')}</div></div>
@@ -1323,7 +1350,7 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
 
     <!-- Insurance Summary (always visible) + Detail (gated) -->
     <div class="section">
-      <div class="section-title">Insurance Summary</div>
+      <div class="section-title">Insurance & Financial Responsibility</div>
       <div class="grid-3" style="margin-bottom:14px;">
         <div class="stat-box">
           <div class="stat-label">BIPD Required</div>
@@ -1334,17 +1361,56 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
           <div class="stat-val sm ${parseInt(c.bipdInsuranceOnFile||0)>0?'green':'red'}">${c.bipdInsuranceOnFile ? formatMoney(c.bipdInsuranceOnFile,'k') : '—'}</div>
         </div>
         <div class="stat-box">
-          <div class="stat-label">Insurance Status</div>
+          <div class="stat-label">Cargo Insurance</div>
+          <div class="stat-val sm ${parseInt(c.cargoInsuranceOnFile||0)>0?'green':''}">${c.cargoInsuranceOnFile ? formatMoney(c.cargoInsuranceOnFile,'k') : '—'}</div>
+          <div class="stat-sub">${c.cargoInsuranceRequired==='Y' ? 'Required' : 'Not Required'}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Bond/Trust</div>
+          <div class="stat-val sm ${parseInt(c.bondInsuranceOnFile||0)>0?'green':''}">${c.bondInsuranceOnFile ? formatMoney(c.bondInsuranceOnFile,'k') : '—'}</div>
+          <div class="stat-sub">${c.bondInsuranceRequired==='Y' ? 'Required' : 'Not Required'}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Active Filings</div>
+          <div class="stat-val sm ${insuranceArr.filter(i=>!i.cancellationDate && !i.cancelledDate).length>0?'green':'red'}">
+            ${insuranceArr.filter(i=>!i.cancellationDate && !i.cancelledDate).length} on file
+          </div>
+          <div class="stat-sub">${insuranceArr.length} total filing${insuranceArr.length!==1?'s':''}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Coverage Status</div>
           <div class="stat-val sm ${c.bipdInsuranceRequired==='Y' && parseInt(c.bipdInsuranceOnFile||0)>=parseInt(c.bipdRequiredAmount||0)?'green':'red'}">
             ${c.bipdInsuranceRequired==='Y' ? (parseInt(c.bipdInsuranceOnFile||0)>=parseInt(c.bipdRequiredAmount||0) ? 'Meets Limits' : 'Below Limits') : 'No Requirement'}
           </div>
         </div>
       </div>
-      ${insuranceGate || `
-      <table class="data-table">
-        <thead><tr><th>Form/Type</th><th>Insurer Code</th><th>Coverage</th><th>Effective Date</th><th>Status</th></tr></thead>
-        <tbody><tr><td colspan="5" style="color:var(--muted);text-align:center;padding:16px;">Insurance filing detail not available via public API</td></tr></tbody>
-      </table>`}
+      ${insuranceGate || (() => {
+        if (insuranceArr.length === 0) return `
+          <p style="color:var(--muted);font-size:13px;padding:12px 0;">No insurance filing records returned by FMCSA for this carrier.</p>`;
+        const rows = insuranceArr.map(ins => {
+          const isCancelled = ins.cancellationDate || ins.cancelledDate;
+          const statusBadge = isCancelled
+            ? `<span class="badge badge-red">Cancelled</span>`
+            : `<span class="badge badge-green">Active</span>`;
+          const coverage = ins.insuranceAmount || ins.coverageAmount
+            ? formatMoney(ins.insuranceAmount || ins.coverageAmount, 'k')
+            : '—';
+          const effDate  = dateStr(ins.effectiveDate || ins.postedDate) || '—';
+          const cancelDt = isCancelled ? dateStr(ins.cancellationDate || ins.cancelledDate) : '—';
+          return `<tr>
+            <td>${fmt(ins.typeDesc || ins.insuranceFormType || ins.formType)}</td>
+            <td>${fmt(ins.insurerCode || ins.insurer || ins.insurerName)}</td>
+            <td>${coverage}</td>
+            <td>${effDate}</td>
+            <td>${cancelDt}</td>
+            <td>${statusBadge}</td>
+          </tr>`;
+        }).join('');
+        return `<table class="data-table">
+          <thead><tr><th>Form/Type</th><th>Insurer</th><th>Coverage</th><th>Effective Date</th><th>Cancelled Date</th><th>Status</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+      })()}
     </div>
 
     <!-- OOS Rates -->
