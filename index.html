@@ -164,6 +164,15 @@
   .adv-date:focus { border-color: var(--navy); }
   .preset-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   .preset-chip { background: #e0eaf5; color: var(--navy); border: none; border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 500; cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; transition: all 0.15s; }
+  /* Checkboxes & radio buttons in advanced search */
+  .adv-check-group { display: flex; flex-direction: column; gap: 8px; }
+  .adv-check-label { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; padding: 4px 0; }
+  .adv-check-label input { width: 15px; height: 15px; accent-color: var(--navy); cursor: pointer; flex-shrink: 0; }
+  .adv-radio-group { margin-bottom: 10px; }
+  .adv-radio-group-title { font-size: 11px; font-weight: 700; color: var(--navy); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+  .adv-radio-opts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
+  .adv-radio-label { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; padding: 3px 0; }
+  .adv-radio-label input { width: 15px; height: 15px; accent-color: var(--navy); cursor: pointer; flex-shrink: 0; }
   .preset-chip:hover { background: var(--navy); color: white; }
   .adv-badge-new { background: var(--gold); color: var(--navy-dark); font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px; margin-left: 6px; vertical-align: middle; }
 
@@ -527,6 +536,57 @@
         </div>
       </div>
 
+      <!-- Entity Type -->
+      <div class="adv-section" id="sec-entity">
+        <div class="adv-section-header" onclick="toggleAdv('body-entity','sec-entity')">
+          <span>Entity Type</span><span class="adv-chevron">▶</span>
+        </div>
+        <div class="adv-section-body" id="body-entity">
+          <div class="adv-check-group">
+            <label class="adv-check-label"><input type="checkbox" id="advEntityCarrier" value="C"> Carrier</label>
+            <label class="adv-check-label"><input type="checkbox" id="advEntityBroker"  value="B"> Broker</label>
+            <label class="adv-check-label"><input type="checkbox" id="advEntityFF"      value="FF"> Freight Forwarder</label>
+            <label class="adv-check-label"><input type="checkbox" id="advEntityShipper" value="S"> Shipper</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Authority Status -->
+      <div class="adv-section" id="sec-auth">
+        <div class="adv-section-header" onclick="toggleAdv('body-auth','sec-auth')">
+          <span>Authority</span><span class="adv-chevron">▶</span>
+        </div>
+        <div class="adv-section-body" id="body-auth">
+          <div class="adv-radio-group">
+            <div class="adv-radio-group-title">Active</div>
+            <div class="adv-radio-opts">
+              <label class="adv-radio-label"><input type="radio" name="authFilter" value="active_mc"> Common (MC Active)</label>
+              <label class="adv-radio-label"><input type="radio" name="authFilter" value="active_broker"> Broker Active</label>
+              <label class="adv-radio-label"><input type="radio" name="authFilter" value="active_ff"> Freight Forwarder Active</label>
+              <label class="adv-radio-label"><input type="radio" name="authFilter" value="active_any"> Any Active Authority</label>
+            </div>
+          </div>
+          <div class="adv-radio-group">
+            <div class="adv-radio-group-title">Pending</div>
+            <div class="adv-radio-opts">
+              <label class="adv-radio-label"><input type="radio" name="authFilter" value="pending_mc"> MC Authority Pending</label>
+              <label class="adv-radio-label"><input type="radio" name="authFilter" value="pending_any"> Any Authority Pending</label>
+            </div>
+          </div>
+          <div class="adv-radio-group">
+            <div class="adv-radio-group-title">Revocation / Inactive</div>
+            <div class="adv-radio-opts">
+              <label class="adv-radio-label"><input type="radio" name="authFilter" value="revoked_mc"> MC Authority Inactive/Revoked</label>
+              <label class="adv-radio-label"><input type="radio" name="authFilter" value="revoked_any"> Any Inactive Docket</label>
+              <label class="adv-radio-label"><input type="radio" name="authFilter" value="prior_revoke"> Has Prior Revocation on Record</label>
+            </div>
+          </div>
+          <div style="margin-top:8px;">
+            <button class="btn-ghost" onclick="document.querySelectorAll('[name=authFilter]').forEach(r=>r.checked=false)" style="font-size:11px;padding:3px 10px;">Clear Authority Filter</button>
+          </div>
+        </div>
+      </div>
+
       <div style="display:flex;gap:8px;margin-top:14px;">
         <button class="btn-search" onclick="advancedSearch()" style="flex:1;padding:12px;border-radius:8px;">Search</button>
         <button class="btn-select" onclick="clearAdvancedFilters()" style="padding:12px;">Clear All</button>
@@ -780,9 +840,18 @@ async function advancedSearch() {
   const safetyRtng = document.getElementById('advSafetyRating')?.value;
   const carrierOp  = document.getElementById('advCarrierOp')?.value;
 
+  // Entity Type checkboxes
+  const entityTypes = ['advEntityCarrier','advEntityBroker','advEntityFF','advEntityShipper']
+    .filter(id => document.getElementById(id)?.checked)
+    .map(id => document.getElementById(id).value);
+
+  // Authority radio
+  const authFilter = document.querySelector('[name="authFilter"]:checked')?.value || '';
+
   if (!dot && !mc && !name && !state && !city && !zip && !status &&
       !dateFrom && !dateTo && !minUnits && !maxUnits &&
-      !minDrivers && !maxDrivers && !safetyRtng && !carrierOp) {
+      !minDrivers && !maxDrivers && !safetyRtng && !carrierOp &&
+      entityTypes.length === 0 && !authFilter) {
     alert('Please enter at least one search criterion.');
     return;
   }
@@ -802,6 +871,8 @@ async function advancedSearch() {
   if (maxDrivers) params.set('max_drivers',maxDrivers);
   if (safetyRtng) params.set('safety_rating', safetyRtng);
   if (carrierOp)  params.set('carrier_op', carrierOp);
+  if (entityTypes.length > 0) params.set('entity_type', entityTypes.join(','));
+  if (authFilter) params.set('authority',  authFilter);
 
   document.getElementById('resultsCard').style.display     = 'none';
   document.getElementById('snapshotSection').style.display = 'none';
@@ -1318,6 +1389,11 @@ function clearAdvancedFilters() {
    'advStatus','advDateFrom','advDateTo','advMinUnits','advMaxUnits',
    'advMinDrivers','advMaxDrivers','advSafetyRating','advCarrierOp']
     .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  // Clear entity type checkboxes
+  ['advEntityCarrier','advEntityBroker','advEntityFF','advEntityShipper']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.checked = false; });
+  // Clear authority radio
+  document.querySelectorAll('[name="authFilter"]').forEach(r => r.checked = false);
 }
 function resetSearch() {
   document.getElementById('searchInput').value = '';

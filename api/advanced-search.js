@@ -49,6 +49,35 @@ export default async function handler(req, res) {
   if (q.safety_rating) conditions.push(`safety_rtng = '${esc(q.safety_rating)}'`);
   if (q.carrier_op)    conditions.push(`carrier_operation = '${esc(q.carrier_op)}'`);
 
+  // ── Entity Type (carship: C=Carrier, B=Broker, S=Shipper; FF=Freight Forwarder via docket prefix) ──
+  if (q.entity_type) {
+    const types = q.entity_type.split(',').map(t => t.trim());
+    const typeConds = [];
+    if (types.includes('C'))  typeConds.push(`carship = 'C'`);
+    if (types.includes('B'))  typeConds.push(`carship = 'B'`);
+    if (types.includes('S'))  typeConds.push(`carship = 'S'`);
+    if (types.includes('FF')) typeConds.push(`(docket1prefix = 'FF' OR docket2prefix = 'FF')`);
+    if (typeConds.length === 1) conditions.push(typeConds[0]);
+    else if (typeConds.length > 1) conditions.push(`(${typeConds.join(' OR ')})`);
+  }
+
+  // ── Authority Status ──────────────────────────────────────────────
+  // Uses docket1prefix (MC/FF/MX), docket1_status_code (A=Active, I=Inactive),
+  // status_code (P=Pending new carrier), prior_revoke_flag (Y/N)
+  if (q.authority) {
+    switch (q.authority) {
+      case 'active_mc':     conditions.push(`docket1prefix = 'MC' AND docket1_status_code = 'A'`); break;
+      case 'active_broker': conditions.push(`carship = 'B' AND docket1_status_code = 'A'`); break;
+      case 'active_ff':     conditions.push(`docket1prefix = 'FF' AND docket1_status_code = 'A'`); break;
+      case 'active_any':    conditions.push(`docket1_status_code = 'A'`); break;
+      case 'pending_mc':    conditions.push(`docket1prefix = 'MC' AND status_code = 'P'`); break;
+      case 'pending_any':   conditions.push(`status_code = 'P'`); break;
+      case 'revoked_mc':    conditions.push(`docket1prefix = 'MC' AND docket1_status_code = 'I'`); break;
+      case 'revoked_any':   conditions.push(`docket1_status_code = 'I'`); break;
+      case 'prior_revoke':  conditions.push(`prior_revoke_flag = 'Y'`); break;
+    }
+  }
+
   if (conditions.length === 0) {
     return res.status(400).json({ error: 'At least one filter is required.' });
   }
