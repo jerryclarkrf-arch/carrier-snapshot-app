@@ -1,12 +1,10 @@
 const SOCRATA_BASE = 'https://data.transportation.gov/resource/az4n-8mr2.json';
 
 function esc(val) {
-  // Escape single quotes for Socrata SoQL
   return val.toString().replace(/'/g, "''");
 }
 
 function toYYYYMMDD(dateStr) {
-  // Convert "2026-02-01" → "20260201"
   return dateStr.replace(/-/g, '');
 }
 
@@ -31,7 +29,7 @@ export default async function handler(req, res) {
   // ── DOT / Company Status ──────────────────────────────────────────
   if (q.status) conditions.push(`status_code = '${esc(q.status)}'`);
 
-  // ── Added Date range (Socrata stores dates as YYYYMMDD numbers) ───
+  // ── Added Date range (Socrata stores dates as YYYYMMDD text strings) ──
   if (q.date_from) conditions.push(`add_date >= '${toYYYYMMDD(q.date_from)}'`);
   if (q.date_to)   conditions.push(`add_date <= '${toYYYYMMDD(q.date_to)}'`);
 
@@ -49,7 +47,7 @@ export default async function handler(req, res) {
   if (q.safety_rating) conditions.push(`safety_rtng = '${esc(q.safety_rating)}'`);
   if (q.carrier_op)    conditions.push(`carrier_operation = '${esc(q.carrier_op)}'`);
 
-  // ── Entity Type (carship: C=Carrier, B=Broker, S=Shipper; FF=Freight Forwarder via docket prefix) ──
+  // ── Entity Type ───────────────────────────────────────────────────
   if (q.entity_type) {
     const types = q.entity_type.split(',').map(t => t.trim());
     const typeConds = [];
@@ -62,8 +60,6 @@ export default async function handler(req, res) {
   }
 
   // ── Authority Status ──────────────────────────────────────────────
-  // Uses docket1prefix (MC/FF/MX), docket1_status_code (A=Active, I=Inactive),
-  // status_code (P=Pending new carrier), prior_revoke_flag (Y/N)
   if (q.authority) {
     switch (q.authority) {
       case 'active_mc':     conditions.push(`docket1prefix = 'MC' AND docket1_status_code = 'A'`); break;
@@ -82,26 +78,39 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'At least one filter is required.' });
   }
 
-  // Sort by add_date desc when date filter is active, else by name
-  const order = (q.date_from || q.date_to) ? 'add_date DESC' : 'legal_name ASC';
+  const whereClause = conditions.join(' AND ');
+  const order  = (q.date_from || q.date_to) ? 'add_date DESC' : 'legal_name ASC';
+  const limit  = 250;
+  const page   = Math.max(0, parseInt(q.page) || 0);
+  const offset = page * limit;
 
-  const params = new URLSearchParams({
-    $where: conditions.join(' AND '),
-    $limit: '150',
-    $order: order,
+  // Run data + count queries in parallel
+  const dataParams = new URLSearchParams({
+    $where:  whereClause,
+    $limit:  String(limit),
+    $offset: String(offset),
+    $order:  order,
+  });
+  const countParams = new URLSearchParams({
+    $where:  whereClause,
+    $select: 'count(*) as total',
+    $limit:  '1',
   });
 
   try {
-    const r = await fetch(`${SOCRATA_BASE}?${params}`, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(25000),
-    });
+    const [dataRes, countRes] = await Promise.all([
+      fetch(`${SOCRATA_BASE}?${dataParams}`,  { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(25000) }),
+      fetch(`${SOCRATA_BASE}?${countParams}`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10000) }),
+    ]);
 
-    if (!r.ok) throw new Error(`Socrata returned ${r.status}`);
-    const data = await r.json();
+    if (!dataRes.ok) throw new Error(`Socrata returned ${dataRes.status}`);
+
+    const data  = await dataRes.json();
+    const countData = countRes.ok ? await countRes.json() : [];
+    const total = parseInt(countData[0]?.total) || data.length;
 
     res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=60');
-    return res.status(200).json(data);
+    return res.status(200).json({ results: data, total, page, limit });
   } catch (err) {
     const timedOut = err.name === 'TimeoutError' || err.name === 'AbortError';
     return res.status(timedOut ? 504 : 502).json({
