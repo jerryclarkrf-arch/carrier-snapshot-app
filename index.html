@@ -906,10 +906,16 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
   const hasPendingAuth = authorityArr.some(a =>
     a.applicationStatus === 'P' || a.authorityStatus === 'P'
   );
-  // New carrier: has docket from Socrata but no active authority on record = pending
   const socrataHasDocket = socrata && (socrata.docket1prefix || socrata.docket1);
   const hasActiveAuthority = authorityArr.some(a => a.authorityStatus === 'A');
-  const isPendingNewCarrier = socrataHasDocket && !hasActiveAuthority && authorityArr.length === 0;
+  // Only flag as pending when the carrier-level FMCSA fields confirm not yet authorized.
+  // (Authority array is often empty for established carriers — don't rely on it alone.)
+  const carrierLevelAuthorized =
+    c.allowedToOperate === 'Y' ||
+    c.commonAuthorityStatus === 'A' ||
+    c.contractAuthorityStatus === 'A' ||
+    c.brokerAuthorityStatus === 'A';
+  const isPendingNewCarrier = socrataHasDocket && !carrierLevelAuthorized && !hasActiveAuthority;
 
   // Derive common/contract/broker status from authority array (fallback to carrier fields)
   const getAuthStatus = (type) => {
