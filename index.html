@@ -1464,17 +1464,71 @@ function resetSearch() {
 
 function exportToCSV() {
   if (allCarrierResults.length === 0) { alert('No results to export.'); return; }
-  const headers = ['Legal Name','DOT Number','MC/Docket','Status','City','State','Power Units','Phone','MCS-150 Date'];
-  const rows = allCarrierResults.map(c => [
-    fmt(c.legal_name), fmt(c.dot_number), fmt(c.docket1),
-    c.status_code==='A'?'Active':'Inactive',
-    fmt(c.phy_city), fmt(c.phy_state),
-    fmt(c.powerUnits||c.total_power_units),
-    fmt(c.telephone), fmt(c.mcs150_date)
-  ]);
-  const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const a   = Object.assign(document.createElement('a'), {
-    href: URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' })),
+
+  // Format a raw Socrata YYYYMMDD[HHMM] date string to MM/DD/YYYY
+  function fmtDate(v) {
+    if (!v) return '';
+    const s = v.toString().replace(/\D/g,'');
+    if (s.length < 8) return v;
+    return `${s.slice(4,6)}/${s.slice(6,8)}/${s.slice(0,4)}`;
+  }
+  // Map carship code to label
+  const carshipLabel = { C:'Carrier', B:'Broker', S:'Shipper' };
+  // Map carrier_operation code
+  const opLabel = { A:'Interstate', B:'Intrastate HM', C:'Intrastate Non-HM' };
+  // DOT status
+  const statusLabel = { A:'Active', I:'Inactive', P:'Pending' };
+  // Docket status
+  const docketStatusLabel = { A:'Active', I:'Inactive/Revoked', '':'Pending' };
+
+  const headers = [
+    'DOT Number', 'MC Prefix', 'MC/Docket Number', 'Docket Status',
+    'Legal Name', 'DBA Name',
+    'DOT Status', 'Entity Type', 'Carrier Operation',
+    'Added Date', 'MCS-150 Date',
+    'Physical Street', 'Physical City', 'Physical State', 'Physical ZIP',
+    'Phone', 'Email',
+    'Company Officer 1', 'Company Officer 2',
+    'Power Units', 'Own Trailers', 'Total Drivers',
+    'Safety Rating'
+  ];
+
+  const rows = allCarrierResults.map(c => {
+    const docketStatus = c.docket1_status_code
+      ? (docketStatusLabel[c.docket1_status_code] || c.docket1_status_code)
+      : (c.docket1 ? 'Pending' : '');
+    return [
+      c.dot_number || '',
+      c.docket1prefix || '',
+      c.docket1 || '',
+      docketStatus,
+      c.legal_name || '',
+      c.dba_name || '',
+      statusLabel[c.status_code] || c.status_code || '',
+      carshipLabel[c.carship] || c.carship || '',
+      opLabel[c.carrier_operation] || c.carrier_operation || '',
+      fmtDate(c.add_date),
+      fmtDate(c.mcs150_date),
+      c.phy_street || c.phy_str || '',
+      c.phy_city || '',
+      c.phy_state || '',
+      c.phy_zip || '',
+      c.phone || c.phy_phone || '',
+      c.email_address || '',
+      c.company_officer_1 || '',
+      c.company_officer_2 || '',
+      c.power_units || c.total_power_units || '',
+      c.owntrail || '',
+      c.total_drivers || '',
+      c.safety_rating || c.safety_rtng || ''
+    ];
+  });
+
+  const csv = [headers, ...rows]
+    .map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(','))
+    .join('\n');
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob(['﻿'+csv], { type: 'text/csv;charset=utf-8;' })),
     download: `carrier-search-${new Date().toISOString().split('T')[0]}.csv`,
     style: 'visibility:hidden'
   });

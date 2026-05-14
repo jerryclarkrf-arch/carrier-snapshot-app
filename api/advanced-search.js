@@ -66,8 +66,10 @@ export default async function handler(req, res) {
       case 'active_broker': conditions.push(`carship = 'B' AND docket1_status_code = 'A'`); break;
       case 'active_ff':     conditions.push(`docket1prefix = 'FF' AND docket1_status_code = 'A'`); break;
       case 'active_any':    conditions.push(`docket1_status_code = 'A'`); break;
-      case 'pending_mc':    conditions.push(`docket1prefix = 'MC' AND status_code = 'P'`); break;
-      case 'pending_any':   conditions.push(`status_code = 'P'`); break;
+      // Pending = has MC docket but docket1_status_code is NULL (application filed, not yet activated)
+      // status_code='P' does NOT exist in Socrata — pending is indicated by null docket status
+      case 'pending_mc':    conditions.push(`docket1prefix = 'MC' AND docket1_status_code IS NULL AND status_code = 'A'`); break;
+      case 'pending_any':   conditions.push(`docket1 IS NOT NULL AND docket1_status_code IS NULL AND status_code = 'A'`); break;
       case 'revoked_mc':    conditions.push(`docket1prefix = 'MC' AND docket1_status_code = 'I'`); break;
       case 'revoked_any':   conditions.push(`docket1_status_code = 'I'`); break;
       case 'prior_revoke':  conditions.push(`prior_revoke_flag = 'Y'`); break;
