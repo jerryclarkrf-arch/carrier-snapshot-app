@@ -1538,5 +1538,67 @@ function exportToCSV() {
 // ── Boot ──────────────────────────────────────────────────────────────────────
 initSupabase();
 </script>
+
+<!-- ── Vercel Web Analytics ───────────────────────────────────────────────── -->
+<script defer src="/_vercel/insights/script.js"></script>
+
+<!-- ── Custom event tracking (works with Vercel Analytics) ───────────────── -->
+<script>
+  // Helper: fire a named event to Vercel Analytics (window.va) when available
+  function track(name, props) {
+    try { if (window.va) window.va('event', { name, ...props }); } catch {}
+  }
+
+  // Patch searchCarriers → track basic searches
+  const _origSearchCarriers = searchCarriers;
+  window.searchCarriers = async function() {
+    const q = document.getElementById('searchInput')?.value?.trim() || '';
+    const isDoc = /^\d+$/.test(q) ? 'dot_lookup' : 'name_search';
+    track('basic_search', { type: isDoc });
+    return _origSearchCarriers.apply(this, arguments);
+  };
+
+  // Patch advancedSearch → track advanced searches
+  const _origAdvancedSearch = advancedSearch;
+  window.advancedSearch = async function() {
+    track('advanced_search');
+    return _origAdvancedSearch.apply(this, arguments);
+  };
+
+  // Patch loadSnapshot → track carrier snapshot views
+  const _origLoadSnapshot = loadSnapshot;
+  window.loadSnapshot = async function(dot) {
+    track('carrier_viewed', { dot: String(dot) });
+    return _origLoadSnapshot.apply(this, arguments);
+  };
+
+  // Track sign-up modal open (account creation interest)
+  const _origOpenAuthModal = window.openAuthModal;
+  if (typeof _origOpenAuthModal === 'function') {
+    window.openAuthModal = function() {
+      track('signup_modal_opened');
+      return _origOpenAuthModal.apply(this, arguments);
+    };
+  }
+
+  // Track successful sign-in & sign-up
+  const _origSignIn = signIn;
+  window.signIn = async function() {
+    track('signin_attempted');
+    return _origSignIn.apply(this, arguments);
+  };
+  const _origSignUp = signUp;
+  window.signUp = async function() {
+    track('signup_attempted');
+    return _origSignUp.apply(this, arguments);
+  };
+
+  // Track CSV exports
+  const _origExportToCSV = exportToCSV;
+  window.exportToCSV = function() {
+    track('csv_exported', { count: (window.allCarrierResults || []).length });
+    return _origExportToCSV.apply(this, arguments);
+  };
+</script>
 </body>
 </html>
