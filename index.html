@@ -949,6 +949,11 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
   const mcs150Status = mcs150Date ? (new Date() - mcs150Date < 730 * 86400000 ? 'Current' : 'Outdated') : 'Unknown';
   const mcs150Formatted = mcs150Date ? dateStr(mcs150Date) : '—';
 
+  // add_date = when carrier was first registered with FMCSA (YYYYMMDD string from Socrata)
+  const addedDate     = socrata?.add_date ? parseSocrataDate(socrata.add_date) : null;
+  const addedAge      = addedDate ? humanDuration(addedDate) : '—';
+  const addedFormatted = addedDate ? dateStr(addedDate) : '—';
+
   const mcNumber = socrata && (socrata.docket1prefix || socrata.docket1)
     ? `${socrata.docket1prefix || ''}${socrata.docket1 || ''}`
     : docketsArr.map(d => `${d.prefix||''}${d.docketNumber}`).join(', ');
@@ -1103,7 +1108,7 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
     <div class="section">
       <div class="section-title">Key Metrics</div>
       <div class="grid-4">
-        <div class="stat-box"><div class="stat-label">In Business</div><div class="stat-val">${mcs150Age}</div></div>
+        <div class="stat-box"><div class="stat-label">Added</div><div class="stat-val">${addedAge}</div><div class="stat-sub">${addedFormatted}</div></div>
         <div class="stat-box"><div class="stat-label">Power Units</div><div class="stat-val">${fmt(powerUnits,'—')}</div></div>
         <div class="stat-box"><div class="stat-label">Own Trailers</div><div class="stat-val">${fmt(ownTrailers,'—')}</div></div>
         <div class="stat-box"><div class="stat-label">Total Drivers</div><div class="stat-val">${fmt(totalDrivers,'—')}</div></div>
@@ -1118,20 +1123,20 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
     <div class="section">
       <div class="section-title">Authority Status</div>
       <div class="grid-3" style="margin-bottom:14px;">
-        <div class="stat-box">
-          <div class="stat-label">Common Authority</div>
-          <div class="stat-val sm ${isPendingNewCarrier ? 'orange' : c.commonAuthorityStatus==='A' ? 'green' : 'red'}">
-            ${isPendingNewCarrier ? 'Pending' : authLabel(c.commonAuthorityStatus)}
-          </div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Contract Authority</div>
-          <div class="stat-val sm ${c.contractAuthorityStatus==='A'?'green':''}">${authLabel(c.contractAuthorityStatus)}</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Broker Authority</div>
-          <div class="stat-val sm ${c.brokerAuthorityStatus==='A'?'green':''}">${authLabel(c.brokerAuthorityStatus)}</div>
-        </div>
+        ${['common','contract','broker'].map(type => {
+          const statusCode = { common: c.commonAuthorityStatus, contract: c.contractAuthorityStatus, broker: c.brokerAuthorityStatus }[type];
+          const authEntry = authorityArr.find(a => (a.operatingAuthorityType||'').toLowerCase().includes(type));
+          const grantDate = authEntry?.grantedDate ? new Date(authEntry.grantedDate) : null;
+          const grantAge  = (grantDate && statusCode === 'A') ? humanDuration(grantDate) : null;
+          const pending   = isPendingNewCarrier && type === 'common';
+          const colorCls  = pending ? 'orange' : statusCode === 'A' ? 'green' : statusCode === 'I' ? 'red' : '';
+          const label     = pending ? 'Pending' : authLabel(statusCode);
+          return `<div class="stat-box">
+            <div class="stat-label">${type.charAt(0).toUpperCase()+type.slice(1)} Authority</div>
+            <div class="stat-val sm ${colorCls}">${label}</div>
+            ${grantAge ? `<div class="stat-sub">${grantAge}</div>` : ''}
+          </div>`;
+        }).join('')}
       </div>
       <table class="data-table">
         <thead><tr><th>Authority Type</th><th>Status</th><th>Granted Date</th><th>Application Status</th></tr></thead>
