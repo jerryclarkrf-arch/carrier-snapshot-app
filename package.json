@@ -1,0 +1,16 @@
+{
+  "name": "carrier-snapshot-app",
+  "version": "1.0.0",
+  "description": "Free FMCSA Carrier Lookup Application",
+  "scripts": {
+    "build": "echo 'No build step required for static HTML'",
+    "dev": "npx serve .",
+    "test": "echo 'No tests configured'"
+  },
+  "keywords": ["carrier", "fmcsa", "vercel"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@vercel/analytics": "^1.1.1"
+  }
+}
