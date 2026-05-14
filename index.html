@@ -902,43 +902,68 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
   const ownTrailers = parseInt(socrata?.owntrail) || null;
   const totalDrivers = parseInt(socrata?.total_drivers || c.totalDrivers) || null;
 
-  // Derive operating status — FMCSA allowedToOperate can say 'Y' even when authority is pending
-  const hasPendingAuth = authorityArr.some(a =>
-    a.applicationStatus === 'P' || a.authorityStatus === 'P'
-  );
+  // ── Operating status derivation ──────────────────────────────────────────
+  // KEY DISTINCTION: allowedToOperate='Y' = DOT registration is active (≠ MC authority active)
+  // A carrier can have active DOT but inactive/pending MC operating authority.
+  const dotActive = c.allowedToOperate === 'Y';
+
   const socrataHasDocket = socrata && (socrata.docket1prefix || socrata.docket1);
+  const hasMcDocket      = socrataHasDocket || docketsArr.length > 0;
+
+  // Active MC operating authority — check authority array first, then carrier-level fields
   const hasActiveAuthority = authorityArr.some(a => a.authorityStatus === 'A');
-  // Only flag as pending when the carrier-level FMCSA fields confirm not yet authorized.
-  // (Authority array is often empty for established carriers — don't rely on it alone.)
-  const carrierLevelAuthorized =
-    c.allowedToOperate === 'Y' ||
+  const hasActiveMcAuth    = hasActiveAuthority ||
     c.commonAuthorityStatus === 'A' ||
     c.contractAuthorityStatus === 'A' ||
     c.brokerAuthorityStatus === 'A';
-  const isPendingNewCarrier = socrataHasDocket && !carrierLevelAuthorized && !hasActiveAuthority;
 
-  // Derive common/contract/broker status from authority array (fallback to carrier fields)
-  const getAuthStatus = (type) => {
-    const match = authorityArr.find(a =>
-      (a.operatingAuthorityType || '').toLowerCase().includes(type.toLowerCase())
-    );
-    if (match) return match.authorityStatus;
-    if (type === 'common')   return c.commonAuthorityStatus;
-    if (type === 'contract') return c.contractAuthorityStatus;
-    if (type === 'broker')   return c.brokerAuthorityStatus;
-    return 'N';
-  };
+  // Inactive MC authority (had it, lost it — revoked/lapsed insurance etc.)
+  const hasInactiveMcAuth  = !hasActiveMcAuth && (
+    c.commonAuthorityStatus === 'I' ||
+    c.contractAuthorityStatus === 'I' ||
+    c.brokerAuthorityStatus === 'I' ||
+    authorityArr.some(a => a.authorityStatus === 'I')
+  );
+
+  // Pending application — new carrier applied but not yet granted
+  const hasPendingAuth = authorityArr.some(a =>
+    a.applicationStatus === 'P' || a.authorityStatus === 'P'
+  );
+  const hasAnyMcPending = hasPendingAuth ||
+    c.commonAuthorityStatus === 'P' ||
+    c.contractAuthorityStatus === 'P';
+
+  // isPendingNewCarrier: has MC docket but no active authority and pending or brand-new
+  const isPendingNewCarrier = hasMcDocket && !hasActiveMcAuth && (hasAnyMcPending || !hasInactiveMcAuth);
+  // isInactiveAuthority: had MC but authority was revoked/lapsed (not just pending)
+  const isInactiveAuthority = hasMcDocket && !hasActiveMcAuth && hasInactiveMcAuth && !hasAnyMcPending;
+
+  // Determine overall operating status badge to display
+  // Priority: DOT inactive → MC inactive → MC pending → authorized → private/no MC
+  let operatingBadge;
+  if (!dotActive) {
+    operatingBadge = '<span class="badge badge-red">✗ Not Authorized — DOT Inactive</span>';
+  } else if (hasActiveMcAuth) {
+    operatingBadge = '<span class="badge badge-green">✓ Authorized to Operate</span>';
+  } else if (isInactiveAuthority) {
+    operatingBadge = '<span class="badge badge-red">✗ MC Authority Revoked / Inactive</span>';
+  } else if (isPendingNewCarrier) {
+    operatingBadge = '<span class="badge badge-orange">⏳ Authorization Pending</span>';
+  } else {
+    // Active DOT, no MC docket at all = private/intrastate carrier (no for-hire authority needed)
+    operatingBadge = '<span class="badge badge-green">✓ DOT Active</span>';
+  }
 
   // Alert banners
   const alerts = [];
-  if (c.allowedToOperate !== 'Y')
-    alerts.push({ type: 'danger',  msg: '⚠️ This carrier is NOT authorized to operate.' });
-  if (c.commonAuthorityStatus === 'I')
-    alerts.push({ type: 'danger',  msg: '⚠️ Common authority is Inactive.' });
-  if (hasPendingAuth)
-    alerts.push({ type: 'warning', msg: '⚠️ This carrier has a pending authority revocation.' });
+  if (!dotActive)
+    alerts.push({ type: 'danger',  msg: '⚠️ This carrier\'s DOT registration is NOT active.' });
+  if (isInactiveAuthority)
+    alerts.push({ type: 'danger',  msg: '⚠️ MC operating authority is Revoked or Inactive. Carrier is NOT authorized for for-hire interstate operations.' });
   if (isPendingNewCarrier)
-    alerts.push({ type: 'warning', msg: '⚠️ Authority application pending — carrier is not yet authorized to operate.' });
+    alerts.push({ type: 'warning', msg: '⚠️ MC authority application is Pending — carrier is not yet authorized to operate for hire.' });
+  if (hasActiveMcAuth && hasPendingAuth)
+    alerts.push({ type: 'warning', msg: '⚠️ A pending authority revocation is on file.' });
 
   document.getElementById('alertBanners').innerHTML =
     alerts.map(a => `<div class="alert-banner alert-${a.type}">${a.msg}</div>`).join('');
@@ -1043,11 +1068,7 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
         <div class="snap-name">${fmt(c.legalName)}${c.dbaName ? ` <span style="font-weight:400;font-size:15px;color:var(--muted);">dba ${c.dbaName}</span>` : ''}</div>
         <div class="snap-meta">DOT# ${c.dotNumber} &nbsp;·&nbsp; MC/FF: ${docketStr} &nbsp;·&nbsp; ${fmt(c.carrierOperation?.carrierOperationDesc)}</div>
         <div style="margin-top:10px;">
-          ${c.allowedToOperate !== 'Y'
-            ? '<span class="badge badge-red">✗ Not Authorized to Operate</span>'
-            : isPendingNewCarrier || hasPendingAuth
-              ? '<span class="badge badge-orange">⏳ Authorization Pending</span>'
-              : '<span class="badge badge-green">✓ Authorized to Operate</span>'}
+          ${operatingBadge}
           &nbsp;
           <span class="badge ${mcs150Status==='Outdated'?'badge-red':'badge-gray'}">MCS-150 ${mcs150Status}${mcs150Age!=='—'?` (${mcs150Age} old)`:''}</span>
         </div>
@@ -1097,8 +1118,10 @@ function renderSnapshot({ main, basics, cargo, ops, dockets, authority, oos, soc
       <div class="section-title">Business Information</div>
       <div class="grid-3" style="margin-bottom:14px;">
         <div class="stat-box">
-          <div class="stat-label">Company Status</div>
-          <div class="stat-val sm ${c.allowedToOperate==='Y'?'green':'red'}">${c.allowedToOperate==='Y'?'Authorized to Operate':'Not Authorized'}</div>
+          <div class="stat-label">Operating Status</div>
+          <div class="stat-val sm ${hasActiveMcAuth?'green':isInactiveAuthority?'red':isPendingNewCarrier?'orange':dotActive?'green':'red'}">
+            ${hasActiveMcAuth ? 'Authorized to Operate' : isInactiveAuthority ? 'MC Authority Revoked' : isPendingNewCarrier ? 'Auth Pending' : dotActive ? 'DOT Active' : 'Not Authorized'}
+          </div>
         </div>
         <div class="stat-box">
           <div class="stat-label">MCS-150 Form Date</div>
