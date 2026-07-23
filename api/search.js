@@ -1,4 +1,13 @@
-export default async function handler(req, res) {
+module.exports = async (req, res) => {
+  // CORS Headers
+  res.setHeader('Access-Control-Allow-Credentials', true);
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
@@ -11,11 +20,9 @@ export default async function handler(req, res) {
   // 1. Sanitize Environment Variables
   const rawUrl = process.env.SUPABASE_URL || '';
   const supabaseKey = process.env.SUPABASE_ANON_KEY || '';
-
-  // Remove trailing slashes if present
   const supabaseUrl = rawUrl.replace(/\/+$|\s+/g, '');
 
-  // 2. Explicit Environment Variable Check
+  // 2. Environment Variable Verification
   if (!supabaseUrl || !supabaseKey) {
     return res.status(500).json({ 
       error: 'Missing Vercel Environment Variables',
@@ -30,14 +37,14 @@ export default async function handler(req, res) {
     const searchTerm = encodeURIComponent(q.trim());
     const isNumeric = /^\d+$/.test(q.trim());
 
-    // 3. Build PostgREST Filter
+    // 3. PostgREST Filter Construction
     const orFilter = isNumeric
       ? `usdot_number.eq.${searchTerm},docket_number.ilike.*${searchTerm}*`
       : `legal_name.ilike.*${searchTerm}*,dba_name.ilike.*${searchTerm}*,docket_number.ilike.*${searchTerm}*`;
 
     const fetchUrl = `${supabaseUrl}/rest/v1/motus_carrier?select=usdot_number,docket_number,legal_name,dba_name,op_auth_type,op_auth_status,last_updated&or=(${orFilter})&limit=100`;
 
-    // 4. Native Fetch Request
+    // 4. Query Execution
     const response = await fetch(fetchUrl, {
       method: 'GET',
       headers: {
@@ -67,4 +74,4 @@ export default async function handler(req, res) {
       stack: err.stack 
     });
   }
-}
+};
