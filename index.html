@@ -612,12 +612,20 @@
       </div>
     </div>
     <div style="overflow-x:auto;">
-      <table>
-        <thead><tr>
-          <th>Legal Name</th><th>DOT Number</th><th>MC/Docket</th><th>DOT Status</th><th>Location</th><th>Units</th><th>Action</th>
-        </tr></thead>
-        <tbody id="tableBody"></tbody>
-      </table>
+      <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+  <thead>
+    <tr>
+      <th style="padding:10px 14px; border-bottom:2px solid var(--border); text-align:left; color:var(--muted); font-size:11px; text-transform:uppercase;">STATUS</th>
+      <th style="padding:10px 14px; border-bottom:2px solid var(--border); text-align:left; color:var(--muted); font-size:11px; text-transform:uppercase;">TYPE</th>
+      <th style="padding:10px 14px; border-bottom:2px solid var(--border); text-align:left; color:var(--navy); font-size:11px; text-transform:uppercase;">DOCKET ↑</th>
+      <th style="padding:10px 14px; border-bottom:2px solid var(--border); text-align:left; color:var(--navy); font-size:11px; text-transform:uppercase;">DOT ↑</th>
+      <th style="padding:10px 14px; border-bottom:2px solid var(--border); text-align:left; color:var(--navy); font-size:11px; text-transform:uppercase;">COMPANY ↑</th>
+      <th style="padding:10px 14px; border-bottom:2px solid var(--border); text-align:left; color:var(--navy); font-size:11px; text-transform:uppercase;">CITY ↑</th>
+      <th style="padding:10px 14px; border-bottom:2px solid var(--border); text-align:left; color:var(--muted); font-size:11px; text-transform:uppercase;">CONTACT INFO</th>
+    </tr>
+  </thead>
+  <tbody id="tableBody"></tbody>
+</table>
     </div>
     <!-- Pagination -->
     <div id="paginationBar" style="display:none;align-items:center;justify-content:space-between;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);flex-wrap:wrap;gap:10px;">
@@ -952,7 +960,7 @@ function displayResults(data, total, page, limit) {
       ? `Showing ${from.toLocaleString()}–${to.toLocaleString()} of ${totalFmt} carriers found`
       : `${totalFmt} carrier${total !== 1 ? 's' : ''} found`;
 
-  // Pagination bar
+  // Pagination bar logic
   const pBar = document.getElementById('paginationBar');
   const totalPages = Math.ceil(total / limit);
   if (totalPages > 1) {
@@ -965,23 +973,49 @@ function displayResults(data, total, page, limit) {
   }
 
   data.forEach(c => {
-    const active  = c.status_code === 'A';
-    const units   = c.powerUnits || c.total_power_units || c.power_units || '—';
-    // Docket: combine prefix+number if available (Socrata direct), else use docket1 (n8n)
-    const docket  = c.docket1prefix
-      ? `${c.docket1prefix}${c.docket1 || ''}`
-      : fmt(c.docket1);
-    // Added date — shown when result is from advanced search date filter
-    const addDate = c.add_date ? ` <span style="font-size:11px;color:var(--muted);">(${dateStr(parseSocrataDate(c.add_date))})</span>` : '';
+    // Map Supabase Motus Schema (with fallbacks for legacy data during transition)
+    const status = c.op_auth_status || c.status_code || 'Unknown';
+    const isActive = status === 'Active' || status === 'A';
+    const isPending = status.includes('Pending');
+
+    // UI Formatting
+    const statusColor = isActive ? 'var(--green)' : (isPending ? 'var(--orange)' : 'var(--red)');
+    const statusText = isActive ? 'Active' : (isPending ? 'Authorization Pending' : 'Inactive');
+    
+    const docketStr = c.docket_number || c.docket1 || 'N/A';
+    const dotStr = c.usdot_number || c.dot_number || 'N/A';
+    const typeStr = c.op_auth_type || c.carship || 'Carrier';
+    const companyName = c.legal_name || 'UNKNOWN';
+    const locationStr = [c.bus_city || c.phy_city, c.bus_state_code || c.phy_state].filter(Boolean).join(', ') || '—';
+    const contactStr = c.bus_telno || c.phone || '—';
+
+    // Create Row Layout matching BrokerSnapshot
     const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    tr.style.transition = 'background 0.15s';
+    tr.onmouseover = () => tr.style.background = '#f8fafc';
+    tr.onmouseout = () => tr.style.background = 'transparent';
+    tr.onclick = () => loadSnapshot(dotStr);
+    
     tr.innerHTML = `
-      <td><strong>${fmt(c.legal_name)}</strong>${addDate}</td>
-      <td style="font-family:'IBM Plex Mono',monospace;font-size:13px;">${fmt(c.dot_number)}</td>
-      <td style="font-family:'IBM Plex Mono',monospace;font-size:13px;">${docket}</td>
-      <td><span class="badge ${active ? 'badge-green' : 'badge-red'}">${active ? 'Active' : 'Inactive'}</span></td>
-      <td>${[c.phy_city, c.phy_state].filter(Boolean).join(', ') || '—'}</td>
-      <td>${units}</td>
-      <td><button class="btn-select" onclick="loadSnapshot('${c.dot_number}')">View</button></td>`;
+      <td style="padding:14px; border-bottom:1px solid var(--border); font-weight:700; color:${statusColor};">
+        ${statusText}
+      </td>
+      <td style="padding:14px; border-bottom:1px solid var(--border);">${typeStr}</td>
+      <td style="padding:14px; border-bottom:1px solid var(--border);">
+        <div style="color:var(--navy); font-weight:600;">${docketStr}</div>
+        <div style="font-size:11px; color:var(--muted); font-style:italic; margin-top:2px;">Motus: ${docketStr}</div>
+      </td>
+      <td style="padding:14px; border-bottom:1px solid var(--border);">
+        <div style="color:var(--navy); font-weight:600;">${dotStr}</div>
+        <div style="font-size:11px; color:var(--muted); font-style:italic; margin-top:2px;">Motus: ${dotStr}</div>
+      </td>
+      <td style="padding:14px; border-bottom:1px solid var(--border); color:var(--navy); text-transform:uppercase;">
+        <strong>${companyName}</strong>
+      </td>
+      <td style="padding:14px; border-bottom:1px solid var(--border); text-transform:uppercase;">${locationStr}</td>
+      <td style="padding:14px; border-bottom:1px solid var(--border);">${contactStr}</td>
+    `;
     tbody.appendChild(tr);
   });
 }
