@@ -1,13 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase Client using environment variables
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default async function handler(req, res) {
-  // CORS & Method Check
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
@@ -22,27 +20,15 @@ export default async function handler(req, res) {
   const isNumeric = /^\d+$/.test(searchTerm);
 
   try {
+    // Removed the missing bus_city, bus_state_code, and bus_telno columns
     let query = supabase
       .from('motus_carrier')
-      .select(`
-        usdot_number,
-        docket_number,
-        legal_name,
-        dba_name,
-        op_auth_type,
-        op_auth_status,
-        bus_city,
-        bus_state_code,
-        bus_telno,
-        last_updated
-      `)
+      .select('usdot_number, docket_number, legal_name, dba_name, op_auth_type, op_auth_status, last_updated')
       .limit(100);
 
     if (isNumeric) {
-      // Numerical input: search exact USDOT or partial Docket number
       query = query.or(`usdot_number.eq.${searchTerm},docket_number.ilike.%${searchTerm}%`);
     } else {
-      // Text input: search Company Name, DBA, or Docket with prefix (e.g. MC123456)
       query = query.or(`legal_name.ilike.%${searchTerm}%,dba_name.ilike.%${searchTerm}%,docket_number.ilike.%${searchTerm}%`);
     }
 
